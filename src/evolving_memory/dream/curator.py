@@ -86,8 +86,13 @@ class TraceCurator:
             vm = CognitiveVM()
             result = vm.execute(program)
 
-            # Build CriticalStep from MARK_CRITICAL results
+            # Collect noise indices for filtering
+            noise_set = {idx for _, idx in result.noise_indices}
+
+            # Build CriticalStep from MARK_CRITICAL results, excluding noise
             for trace_id, action_index in result.critical_indices:
+                if action_index in noise_set:
+                    continue  # Intelligent forgetting: skip noisy actions
                 if action_index < len(trace.action_entries):
                     a = trace.action_entries[action_index]
                     critical_steps.append(CriticalStep(

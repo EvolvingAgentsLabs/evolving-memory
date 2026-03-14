@@ -8,26 +8,50 @@ from typing import Generator
 
 from .capture.session import SessionManager
 from .capture.trace_logger import TraceLogger
-from .config import CTEConfig
+from .config import CTEConfig, ISAConfig
 from .dream.engine import DreamEngine
 from .embeddings.encoder import EmbeddingEncoder
+from .isa.opcodes import Instruction, Opcode, Program
+from .isa.parser import InstructionParser
+from .isa.serializer import serialize_instruction, serialize_program
 from .llm.base import BaseLLMProvider
-from .models.graph import ChildNode
+from .models.graph import ChildNode, ParentNode
 from .models.hierarchy import HierarchyLevel, RouterPath
 from .models.query import EntryPoint, RouterDecision, TraversalState
 from .models.strategy import DreamJournalEntry
 from .router.cognitive_router import CognitiveRouter
 from .storage.sqlite_store import SQLiteStore
 from .storage.vector_index import VectorIndex
+from .vm.context import VMContext, VMResult
+from .vm.machine import CognitiveVM
 
 __all__ = [
+    # Engine
     "CognitiveTrajectoryEngine",
     "CTEConfig",
+    "ISAConfig",
+    # ISA
+    "Opcode",
+    "Instruction",
+    "Program",
+    "InstructionParser",
+    "serialize_instruction",
+    "serialize_program",
+    # VM
+    "CognitiveVM",
+    "VMContext",
+    "VMResult",
+    # LLM
+    "BaseLLMProvider",
+    # Models
     "HierarchyLevel",
     "RouterPath",
     "RouterDecision",
     "TraversalState",
     "DreamJournalEntry",
+    "ParentNode",
+    "ChildNode",
+    "EntryPoint",
 ]
 
 
