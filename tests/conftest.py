@@ -11,7 +11,7 @@ import pytest
 from evolving_memory.config import CTEConfig
 from evolving_memory.llm.base import BaseLLMProvider
 from evolving_memory.models.graph import ParentNode, ChildNode, ThoughtEdge
-from evolving_memory.models.hierarchy import HierarchyLevel, TraceOutcome, EdgeType
+from evolving_memory.models.hierarchy import HierarchyLevel, TraceOutcome, TraceSource, EdgeType
 from evolving_memory.models.trace import ActionEntry, TraceEntry, TraceSession
 from evolving_memory.storage.sqlite_store import SQLiteStore
 from evolving_memory.storage.vector_index import VectorIndex
@@ -178,6 +178,7 @@ def make_trace(
     outcome: TraceOutcome = TraceOutcome.SUCCESS,
     n_actions: int = 3,
     session_id: str | None = None,
+    source: TraceSource = TraceSource.UNKNOWN_SOURCE,
 ) -> TraceEntry:
     actions = [
         ActionEntry(
@@ -192,6 +193,7 @@ def make_trace(
         goal=goal,
         outcome=outcome,
         confidence=0.8,
+        source=source,
         action_entries=actions,
         session_id=session_id,
     )

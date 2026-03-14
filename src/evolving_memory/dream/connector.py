@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 
 from ..config import DreamConfig
 from ..embeddings.encoder import EmbeddingEncoder
+from ..models.fidelity import get_fidelity_weight
 from ..models.graph import ThoughtEdge, ParentNode
-from ..models.hierarchy import EdgeType, TraceOutcome
+from ..models.hierarchy import EdgeType, TraceOutcome, TraceSource
 from ..storage.sqlite_store import SQLiteStore
 from ..storage.vector_index import VectorIndex
 from .chunker import ChunkedResult
@@ -33,7 +34,7 @@ class TopologicalConnector:
         stats = {"nodes_created": 0, "nodes_merged": 0, "edges_created": 0}
 
         for chunk in chunks:
-            merged = self._try_merge(chunk.parent)
+            merged = self._try_merge(chunk.parent, chunk.source)
             if merged:
                 # Merged into existing node
                 stats["nodes_merged"] += 1
@@ -63,7 +64,11 @@ class TopologicalConnector:
 
         return stats
 
-    def _try_merge(self, candidate: ParentNode) -> ParentNode | None:
+    def _try_merge(
+        self,
+        candidate: ParentNode,
+        source: TraceSource = TraceSource.UNKNOWN_SOURCE,
+    ) -> ParentNode | None:
         """Check if a similar parent node exists and merge if so."""
         embedding = self._encoder.encode(candidate.summary)
         results = self._index.search(embedding, top_k=1)
@@ -78,9 +83,10 @@ class TopologicalConnector:
         if existing is None:
             return None
 
-        # Merge: update existing node
+        # Merge: update existing node with fidelity-weighted confidence boost
+        weight = get_fidelity_weight(source)
         existing.version += 1
-        existing.confidence = min(1.0, existing.confidence + 0.1)
+        existing.confidence = min(1.0, existing.confidence + 0.1 * weight)
         existing.access_count += 1
         if candidate.outcome == TraceOutcome.SUCCESS:
             existing.success_count += candidate.success_count

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..models.graph import ParentNode, ChildNode, ThoughtEdge
-from ..models.hierarchy import HierarchyLevel, TraceOutcome, EdgeType
+from ..models.hierarchy import HierarchyLevel, TraceOutcome, TraceSource, EdgeType
 from ..models.trace import TraceEntry, TraceSession, ActionEntry
 from ..models.strategy import NegativeConstraint, DreamJournalEntry
 
@@ -47,9 +47,12 @@ class SQLiteStore:
                 success_count INTEGER NOT NULL DEFAULT 0,
                 failure_count INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL DEFAULT 1,
+                domain TEXT NOT NULL DEFAULT 'default',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_parent_domain ON parent_nodes(domain);
 
             CREATE TABLE IF NOT EXISTS child_nodes (
                 node_id TEXT PRIMARY KEY,
@@ -99,6 +102,7 @@ class SQLiteStore:
                 goal TEXT NOT NULL DEFAULT '',
                 outcome TEXT NOT NULL DEFAULT 'unknown',
                 confidence REAL NOT NULL DEFAULT 0.0,
+                source TEXT NOT NULL DEFAULT 'unknown_source',
                 tags TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES trace_sessions(session_id)
@@ -143,20 +147,20 @@ class SQLiteStore:
 
     # ── parent nodes ────────────────────────────────────────────────
 
-    def save_parent_node(self, node: ParentNode) -> None:
+    def save_parent_node(self, node: ParentNode, domain: str = "default") -> None:
         now = _now_iso()
         self._conn.execute(
             """INSERT OR REPLACE INTO parent_nodes
                (node_id, hierarchy_level, content, summary, confidence, access_count,
                 goal, outcome, trigger_goals, negative_constraints, child_node_ids,
-                success_count, failure_count, version, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                success_count, failure_count, version, domain, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 node.node_id, int(node.hierarchy_level), node.content, node.summary,
                 node.confidence, node.access_count, node.goal, node.outcome.value,
                 json.dumps(node.trigger_goals), json.dumps(node.negative_constraints),
                 json.dumps(node.child_node_ids), node.success_count, node.failure_count,
-                node.version, node.created_at.isoformat(), now,
+                node.version, domain, node.created_at.isoformat(), now,
             ),
         )
         self._conn.commit()
@@ -169,9 +173,38 @@ class SQLiteStore:
             return None
         return self._row_to_parent(row)
 
-    def get_all_parent_nodes(self) -> list[ParentNode]:
-        rows = self._conn.execute("SELECT * FROM parent_nodes").fetchall()
+    def get_all_parent_nodes(self, domain: str | None = None) -> list[ParentNode]:
+        if domain:
+            rows = self._conn.execute(
+                "SELECT * FROM parent_nodes WHERE domain = ?", (domain,)
+            ).fetchall()
+        else:
+            rows = self._conn.execute("SELECT * FROM parent_nodes").fetchall()
         return [self._row_to_parent(r) for r in rows]
+
+    def get_domains(self) -> list[str]:
+        """Return all distinct domains."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT domain FROM parent_nodes ORDER BY domain"
+        ).fetchall()
+        return [r["domain"] for r in rows]
+
+    def get_stats(self) -> dict:
+        """Return summary statistics about the store."""
+        parent_count = self._conn.execute("SELECT COUNT(*) FROM parent_nodes").fetchone()[0]
+        child_count = self._conn.execute("SELECT COUNT(*) FROM child_nodes").fetchone()[0]
+        edge_count = self._conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+        session_count = self._conn.execute("SELECT COUNT(*) FROM trace_sessions").fetchone()[0]
+        trace_count = self._conn.execute("SELECT COUNT(*) FROM trace_entries").fetchone()[0]
+        journal_count = self._conn.execute("SELECT COUNT(*) FROM dream_journal").fetchone()[0]
+        return {
+            "parent_nodes": parent_count,
+            "child_nodes": child_count,
+            "edges": edge_count,
+            "sessions": session_count,
+            "traces": trace_count,
+            "dream_cycles": journal_count,
+        }
 
     def increment_access(self, node_id: str) -> None:
         self._conn.execute(
@@ -309,12 +342,13 @@ class SQLiteStore:
         self._conn.execute(
             """INSERT OR REPLACE INTO trace_entries
                (trace_id, session_id, hierarchy_level, parent_trace_id, goal,
-                outcome, confidence, tags, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+                outcome, confidence, source, tags, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (
                 trace.trace_id, trace.session_id, int(trace.hierarchy_level),
                 trace.parent_trace_id, trace.goal, trace.outcome.value,
-                trace.confidence, json.dumps(trace.tags), trace.created_at.isoformat(),
+                trace.confidence, trace.source.value,
+                json.dumps(trace.tags), trace.created_at.isoformat(),
             ),
         )
         for action in trace.action_entries:
@@ -367,6 +401,7 @@ class SQLiteStore:
                 goal=row["goal"],
                 outcome=TraceOutcome(row["outcome"]),
                 confidence=row["confidence"],
+                source=TraceSource(row["source"]) if row["source"] else TraceSource.UNKNOWN_SOURCE,
                 action_entries=actions,
                 tags=json.loads(row["tags"]),
                 created_at=datetime.fromisoformat(row["created_at"]),

@@ -11,9 +11,11 @@ from ..llm.base import BaseLLMProvider
 from ..models.strategy import DreamJournalEntry
 from ..storage.sqlite_store import SQLiteStore
 from ..storage.vector_index import VectorIndex
+from .adapters.default_adapter import DefaultAdapter
 from .chunker import HierarchicalChunker
 from .connector import TopologicalConnector
 from .curator import TraceCurator
+from .domain_adapter import DreamDomainAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +30,14 @@ class DreamEngine:
         index: VectorIndex,
         encoder: EmbeddingEncoder,
         config: CTEConfig,
+        adapter: DreamDomainAdapter | None = None,
     ) -> None:
         self._llm = llm
         self._store = store
         self._index = index
         self._encoder = encoder
         self._config = config
+        self._adapter = adapter or DefaultAdapter()
         self._curator = TraceCurator(llm)
         self._chunker = HierarchicalChunker(llm)
         self._connector = TopologicalConnector(store, index, encoder, config.dream)

@@ -9,7 +9,7 @@ from ..isa.parser import InstructionParser
 from ..llm.base import BaseLLMProvider
 from ..llm.prompts import REM_SYSTEM, REM_BUILD_NODES
 from ..models.graph import ParentNode, ChildNode
-from ..models.hierarchy import HierarchyLevel, TraceOutcome
+from ..models.hierarchy import HierarchyLevel, TraceOutcome, TraceSource
 from ..vm.machine import CognitiveVM
 from .curator import CuratedTrace
 
@@ -22,6 +22,7 @@ class ChunkedResult:
     parent: ParentNode
     children: list[ChildNode] = field(default_factory=list)
     source_trace_id: str = ""
+    source: TraceSource = TraceSource.UNKNOWN_SOURCE
 
 
 class HierarchicalChunker:
@@ -135,6 +136,7 @@ class HierarchicalChunker:
             parent=parent,
             children=children,
             source_trace_id=trace.trace_id,
+            source=trace.source,
         )
 
     @staticmethod
