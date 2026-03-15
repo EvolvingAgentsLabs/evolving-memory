@@ -40,7 +40,7 @@ class DreamEngine:
         self._adapter = adapter or DefaultAdapter()
         self._curator = TraceCurator(llm)
         self._chunker = HierarchicalChunker(llm)
-        self._connector = TopologicalConnector(store, index, encoder, config.dream)
+        self._connector = TopologicalConnector(store, index, encoder, config.dream, llm)
 
     async def dream(self) -> DreamJournalEntry:
         """Run a full dream cycle over all unprocessed sessions."""
@@ -82,9 +82,11 @@ class DreamEngine:
         journal.nodes_created = stats["nodes_created"]
         journal.nodes_merged = stats["nodes_merged"]
         journal.edges_created = stats["edges_created"]
+        journal.cross_edges_created = stats.get("cross_edges_created", 0)
         journal.phase_log.append(
             f"Consolidation: {stats['nodes_created']} created, "
             f"{stats['nodes_merged']} merged, {stats['edges_created']} edges"
+            f" ({journal.cross_edges_created} cross-trace)"
         )
 
         # Mark sessions as processed

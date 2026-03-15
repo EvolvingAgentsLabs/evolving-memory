@@ -7,9 +7,9 @@ from evolving_memory.dream.curator import TraceCurator
 from evolving_memory.dream.chunker import HierarchicalChunker
 from evolving_memory.dream.connector import TopologicalConnector
 from evolving_memory.dream.engine import DreamEngine
-from evolving_memory.models.hierarchy import TraceOutcome
+from evolving_memory.models.hierarchy import EdgeType, TraceOutcome
 
-from conftest import make_trace, make_session, MockEmbeddingEncoder
+from conftest import make_trace, make_session, MockEmbeddingEncoder, MockLLMProvider
 
 
 class TestTraceCurator:
@@ -89,7 +89,7 @@ class TestTopologicalConnector:
         chunker = HierarchicalChunker(mock_llm)
         chunks = await chunker.chunk(curated)
 
-        connector = TopologicalConnector(store, vector_index, encoder, config)
+        connector = TopologicalConnector(store, vector_index, encoder, config, mock_llm)
         stats = await connector.consolidate(chunks)
 
         assert stats["nodes_created"] == 1
@@ -101,6 +101,69 @@ class TestTopologicalConnector:
         assert len(parents) == 1
         children = store.get_child_nodes_for_parent(parents[0].node_id)
         assert len(children) > 0
+
+    @pytest.mark.asyncio
+    async def test_cross_link_discovery(self, mock_llm, store, vector_index):
+        """Two related traces should produce cross-trace CAUSAL edges."""
+        encoder = MockEmbeddingEncoder()
+        # Floor=-1 lets all candidates through (mock vectors are near-orthogonal)
+        config = DreamConfig(cross_link_similarity_floor=-1.0)
+
+        curator = TraceCurator(mock_llm)
+        chunker = HierarchicalChunker(mock_llm)
+
+        # Create two traces with overlapping goal keywords
+        traces_a = [make_trace(goal="implement auth system")]
+        curated_a = await curator.curate(traces_a)
+        chunks_a = await chunker.chunk(curated_a)
+
+        traces_b = [make_trace(goal="test auth system")]
+        curated_b = await curator.curate(traces_b)
+        chunks_b = await chunker.chunk(curated_b)
+
+        connector = TopologicalConnector(store, vector_index, encoder, config, mock_llm)
+
+        # Consolidate first batch
+        stats_a = await connector.consolidate(chunks_a)
+        assert stats_a["nodes_created"] == 1
+
+        # Consolidate second batch — should discover cross-link to first
+        stats_b = await connector.consolidate(chunks_b)
+        assert stats_b["nodes_created"] == 1
+        assert stats_b["cross_edges_created"] > 0
+
+        # Verify CAUSAL edge exists in the store
+        parents = store.get_all_parent_nodes()
+        assert len(parents) == 2
+        edges = store.get_edges_from(parents[0].node_id) + store.get_edges_to(parents[0].node_id)
+        causal_edges = [e for e in edges if e.edge_type == EdgeType.CAUSAL]
+        assert len(causal_edges) > 0
+
+    @pytest.mark.asyncio
+    async def test_cross_link_unrelated(self, mock_llm, store, vector_index):
+        """Two unrelated traces should produce no cross-trace edges."""
+        encoder = MockEmbeddingEncoder()
+        config = DreamConfig(cross_link_similarity_floor=-1.0)
+
+        curator = TraceCurator(mock_llm)
+        chunker = HierarchicalChunker(mock_llm)
+
+        # Create two traces with completely different goals
+        traces_a = [make_trace(goal="implement authentication")]
+        curated_a = await curator.curate(traces_a)
+        chunks_a = await chunker.chunk(curated_a)
+
+        traces_b = [make_trace(goal="deploy infrastructure")]
+        curated_b = await curator.curate(traces_b)
+        chunks_b = await chunker.chunk(curated_b)
+
+        connector = TopologicalConnector(store, vector_index, encoder, config, mock_llm)
+
+        await connector.consolidate(chunks_a)
+        stats_b = await connector.consolidate(chunks_b)
+
+        # No shared keywords → mock LLM emits no LNK_NODE → no cross edges
+        assert stats_b["cross_edges_created"] == 0
 
 
 class TestDreamEngine:

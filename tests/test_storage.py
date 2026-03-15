@@ -87,7 +87,7 @@ class TestSQLiteStore:
 
 class TestVectorIndex:
     def test_add_and_search(self, vector_index):
-        vec = np.random.randn(384).astype(np.float32)
+        vec = np.random.randn(768).astype(np.float32)
         vector_index.add("node_1", vec)
         results = vector_index.search(vec, top_k=1)
         assert len(results) == 1
@@ -95,21 +95,21 @@ class TestVectorIndex:
         assert results[0][1] > 0.99  # Same vector, high similarity
 
     def test_search_empty_index(self, vector_index):
-        vec = np.random.randn(384).astype(np.float32)
+        vec = np.random.randn(768).astype(np.float32)
         results = vector_index.search(vec, top_k=5)
         assert results == []
 
     def test_multiple_nodes(self, vector_index):
         for i in range(10):
-            vec = np.random.randn(384).astype(np.float32)
+            vec = np.random.randn(768).astype(np.float32)
             vector_index.add(f"node_{i}", vec)
         assert vector_index.size == 10
-        query = np.random.randn(384).astype(np.float32)
+        query = np.random.randn(768).astype(np.float32)
         results = vector_index.search(query, top_k=3)
         assert len(results) == 3
 
     def test_remove_node(self, vector_index):
-        vec = np.random.randn(384).astype(np.float32)
+        vec = np.random.randn(768).astype(np.float32)
         vector_index.add("to_remove", vec)
         assert vector_index.size == 1
         vector_index.remove("to_remove")

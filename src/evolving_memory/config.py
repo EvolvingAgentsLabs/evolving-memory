@@ -18,6 +18,8 @@ class DreamConfig(BaseModel):
     merge_similarity_threshold: float = 0.85
     max_traces_per_cycle: int = 50
     min_actions_for_trace: int = 2
+    cross_link_top_k: int = 5
+    cross_link_similarity_floor: float = 0.3
 
 
 class RouterConfig(BaseModel):
@@ -34,8 +36,8 @@ class CTEConfig(BaseModel):
     """Top-level configuration for the Cognitive Trajectory Engine."""
     db_path: Path = Field(default=Path("memory.db"))
     faiss_path: Path = Field(default=Path("memory.faiss"))
-    embedding_model: str = "all-MiniLM-L6-v2"
-    embedding_dim: int = 384
+    embedding_model: str = "gemini-embedding-2-preview"
+    embedding_dim: int = 768
     dream: DreamConfig = Field(default_factory=DreamConfig)
     router: RouterConfig = Field(default_factory=RouterConfig)
     isa: ISAConfig = Field(default_factory=ISAConfig)

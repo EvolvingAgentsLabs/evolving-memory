@@ -2,11 +2,11 @@
 
 import pytest
 
-from evolving_memory.config import CTEConfig
+from evolving_memory.config import CTEConfig, DreamConfig
 from evolving_memory.capture.session import SessionManager
 from evolving_memory.capture.trace_logger import TraceLogger
 from evolving_memory.dream.engine import DreamEngine
-from evolving_memory.models.hierarchy import HierarchyLevel, RouterPath
+from evolving_memory.models.hierarchy import EdgeType, HierarchyLevel, RouterPath
 from evolving_memory.router.cognitive_router import CognitiveRouter
 from evolving_memory.storage.sqlite_store import SQLiteStore
 from evolving_memory.storage.vector_index import VectorIndex
@@ -20,7 +20,7 @@ class TestIntegration:
         """Capture a session, run dream cycle, query memory, traverse graph."""
         # Setup
         store = SQLiteStore(":memory:")
-        index = VectorIndex(dim=384)
+        index = VectorIndex(dim=768)
         encoder = MockEmbeddingEncoder()
         llm = MockLLMProvider()
         config = CTEConfig()
@@ -85,7 +85,7 @@ class TestIntegration:
     async def test_multiple_dream_cycles(self):
         """Test that multiple dream cycles accumulate knowledge."""
         store = SQLiteStore(":memory:")
-        index = VectorIndex(dim=384)
+        index = VectorIndex(dim=768)
         encoder = MockEmbeddingEncoder()
         llm = MockLLMProvider()
         config = CTEConfig()
@@ -115,5 +115,55 @@ class TestIntegration:
         assert count_after_2 >= count_after_1
         assert j1.nodes_created > 0
         assert j2.nodes_created + j2.nodes_merged > 0
+
+        store.close()
+
+    @pytest.mark.asyncio
+    async def test_cross_trace_edges_after_dreaming(self):
+        """After dreaming related sessions, cross-trace edges should exist."""
+        store = SQLiteStore(":memory:")
+        index = VectorIndex(dim=768)
+        encoder = MockEmbeddingEncoder()
+        llm = MockLLMProvider()
+        # Floor=-1 lets all candidates through (mock vectors are near-orthogonal)
+        config = CTEConfig(dream=DreamConfig(cross_link_similarity_floor=-1.0))
+
+        engine = DreamEngine(llm, store, index, encoder, config)
+        mgr = SessionManager(store)
+
+        # Session 1: learn about Fourier transforms
+        with mgr.session("learn Fourier") as logger:
+            with logger.trace(HierarchyLevel.TACTICAL, "understand Fourier transform") as ctx:
+                ctx.action("research", "study Fourier theory", result="understood DFT")
+                ctx.action("practice", "implement DFT from scratch", result="working DFT")
+
+        j1 = await engine.dream()
+        assert j1.nodes_created > 0
+
+        # Session 2: apply FFT (related — shares "Fourier" keyword pattern won't
+        # match due to mock encoder hashing, but the goal overlap via mock LLM will)
+        with mgr.session("apply Fourier") as logger:
+            with logger.trace(HierarchyLevel.TACTICAL, "apply Fourier transform") as ctx:
+                ctx.action("code", "use FFT library", result="spectral analysis done")
+                ctx.action("test", "validate Fourier results", result="results correct")
+
+        j2 = await engine.dream()
+        assert j2.nodes_created > 0
+
+        # Check for cross-trace edges
+        parents = store.get_all_parent_nodes()
+        assert len(parents) >= 2
+
+        # Look for CAUSAL or CONTEXT_JUMP edges between parent nodes
+        cross_edge_types = {EdgeType.CAUSAL, EdgeType.CONTEXT_JUMP}
+        cross_edges = []
+        for parent in parents:
+            edges = store.get_edges_from(parent.node_id) + store.get_edges_to(parent.node_id)
+            cross_edges.extend(e for e in edges if e.edge_type in cross_edge_types)
+
+        # The mock LLM checks for shared goal keywords (>3 chars):
+        # "understand Fourier transform" and "apply Fourier transform" share "Fourier" and "transform"
+        assert len(cross_edges) > 0, "Expected cross-trace edges between related strategies"
+        assert j2.cross_edges_created > 0
 
         store.close()

@@ -25,8 +25,8 @@ def server():
     srv = MemoryServer.__new__(MemoryServer)
     srv.config = config
     srv.store = SQLiteStore(":memory:")
-    srv.encoder = MockEmbeddingEncoder(dim=384)
-    srv.index = VectorIndex(dim=384)
+    srv.encoder = MockEmbeddingEncoder(dim=768)
+    srv.index = VectorIndex(dim=768)
     from evolving_memory.router.cognitive_router import CognitiveRouter
     srv.router = CognitiveRouter(
         store=srv.store, index=srv.index,

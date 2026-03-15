@@ -91,7 +91,7 @@ class CognitiveTrajectoryEngine:
             self._config.db_path = Path(db_path)
 
         self._store = SQLiteStore(self._config.db_path)
-        self._encoder = EmbeddingEncoder(self._config.embedding_model)
+        self._encoder = EmbeddingEncoder(self._config.embedding_model, dim=self._config.embedding_dim)
         self._index = VectorIndex(
             dim=self._config.embedding_dim,
             index_path=self._config.faiss_path,

@@ -64,9 +64,6 @@ Then emit one BUILD_CHILD per critical step, using $LAST_PARENT as the parent re
 End with HALT."""
 
 # ── Phase 3: Consolidation (TopologicalConnector) ──────────────────
-# NOTE: Consolidation (connector.py) remains 100% algorithmic.
-# The prompts below are kept for potential future use but are not
-# currently called by the dream engine.
 
 CONSOLIDATION_SYSTEM = """\
 You are a memory consolidation engine. Your job is to determine whether two
@@ -91,3 +88,35 @@ Respond with JSON:
   "reasoning": "...",
   "merged_summary": "..." (only if should_merge is true)
 }}"""
+
+# ── Phase 3b: Cross-Trace Link Discovery ──────────────────────────
+
+CONSOLIDATION_LINK_SYSTEM = """\
+You are a knowledge graph architect for a memory consolidation system.
+Output ONLY LNK_NODE instructions, one per line. No prose, no explanation.
+Lines starting with # are comments (optional)."""
+
+CONSOLIDATION_LINK_DISCOVERY = """\
+Analyze these two memory strategies and determine if they are conceptually connected.
+
+Strategy A (ID: {id_a}):
+  Goal: {goal_a}
+  Summary: {summary_a}
+  Steps: {steps_a}
+
+Strategy B (ID: {id_b}):
+  Goal: {goal_b}
+  Summary: {summary_b}
+  Steps: {steps_b}
+
+If A is a prerequisite for B (learning A helps understand B):
+  LNK_NODE {id_a} {id_b} "causal"
+
+If B is a prerequisite for A:
+  LNK_NODE {id_b} {id_a} "causal"
+
+If they share concepts but are different approaches/topics:
+  LNK_NODE {id_a} {id_b} "context_jump"
+
+If they are unrelated, emit nothing.
+End with HALT."""

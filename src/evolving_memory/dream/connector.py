@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from ..config import DreamConfig
 from ..embeddings.encoder import EmbeddingEncoder
+from ..isa.parser import InstructionParser
+from ..llm.base import BaseLLMProvider
+from ..llm.prompts import CONSOLIDATION_LINK_DISCOVERY, CONSOLIDATION_LINK_SYSTEM
 from ..models.fidelity import get_fidelity_weight
 from ..models.graph import ThoughtEdge, ParentNode
 from ..models.hierarchy import EdgeType, TraceOutcome, TraceSource
 from ..storage.sqlite_store import SQLiteStore
 from ..storage.vector_index import VectorIndex
+from ..vm.machine import CognitiveVM
 from .chunker import ChunkedResult
+
+logger = logging.getLogger(__name__)
 
 
 class TopologicalConnector:
@@ -23,15 +30,24 @@ class TopologicalConnector:
         index: VectorIndex,
         encoder: EmbeddingEncoder,
         config: DreamConfig,
+        llm: BaseLLMProvider | None = None,
     ) -> None:
         self._store = store
         self._index = index
         self._encoder = encoder
         self._config = config
+        self._llm = llm
+        self._parser = InstructionParser()
 
     async def consolidate(self, chunks: list[ChunkedResult]) -> dict:
         """Consolidate chunked results into the thought graph. Returns stats."""
-        stats = {"nodes_created": 0, "nodes_merged": 0, "edges_created": 0}
+        stats = {
+            "nodes_created": 0,
+            "nodes_merged": 0,
+            "edges_created": 0,
+            "cross_edges_created": 0,
+        }
+        new_node_ids: list[str] = []
 
         for chunk in chunks:
             merged = self._try_merge(chunk.parent, chunk.source)
@@ -47,6 +63,7 @@ class TopologicalConnector:
                 self._index.add(chunk.parent.node_id, embedding)
                 stats["nodes_created"] += 1
                 parent = chunk.parent
+                new_node_ids.append(parent.node_id)
 
             # Save child nodes
             for child in chunk.children:
@@ -61,6 +78,12 @@ class TopologicalConnector:
             # Create edges
             edges_created = self._create_edges(parent, chunk.children)
             stats["edges_created"] += edges_created
+
+        # Cross-trace link discovery (requires LLM)
+        if new_node_ids and self._llm is not None:
+            cross_edges = await self._discover_cross_links(new_node_ids)
+            stats["cross_edges_created"] = cross_edges
+            stats["edges_created"] += cross_edges
 
         return stats
 
@@ -135,3 +158,76 @@ class TopologicalConnector:
                 count += 1
 
         return count
+
+    async def _discover_cross_links(self, new_node_ids: list[str]) -> int:
+        """Find cross-trace connections between newly created and existing nodes."""
+        edges_created = 0
+
+        for node_id in new_node_ids:
+            node = self._store.get_parent_node(node_id)
+            if node is None:
+                continue
+            embedding = self._encoder.encode(node.summary)
+
+            # Semantic similarity as candidate filter only
+            candidates = self._index.search(
+                embedding, top_k=self._config.cross_link_top_k
+            )
+
+            for candidate_id, sim_score in candidates:
+                if candidate_id == node_id:
+                    continue
+                if sim_score < self._config.cross_link_similarity_floor:
+                    continue
+
+                candidate = self._store.get_parent_node(candidate_id)
+                if candidate is None:
+                    continue
+
+                children_a = self._store.get_child_nodes_for_parent(node_id)
+                children_b = self._store.get_child_nodes_for_parent(candidate_id)
+
+                steps_a = "; ".join(
+                    f"[{c.step_index}] {c.action}" for c in children_a
+                )
+                steps_b = "; ".join(
+                    f"[{c.step_index}] {c.action}" for c in children_b
+                )
+
+                # LLM decides the actual relationship
+                raw = await self._llm.emit_program(
+                    CONSOLIDATION_LINK_DISCOVERY.format(
+                        id_a=node_id,
+                        goal_a=node.goal,
+                        summary_a=node.summary,
+                        steps_a=steps_a or "(none)",
+                        id_b=candidate_id,
+                        goal_b=candidate.goal,
+                        summary_b=candidate.summary,
+                        steps_b=steps_b or "(none)",
+                    ),
+                    system=CONSOLIDATION_LINK_SYSTEM,
+                )
+
+                program = self._parser.parse(raw)
+                vm = CognitiveVM()
+                result = vm.execute(program)
+
+                for edge_data in result.built_edges:
+                    edge_type = EdgeType(edge_data["edge_type"])
+                    self._store.save_edge(ThoughtEdge(
+                        source_node_id=edge_data["source_id"],
+                        target_node_id=edge_data["target_id"],
+                        edge_type=edge_type,
+                        weight=sim_score,
+                    ))
+                    edges_created += 1
+                    logger.debug(
+                        "Cross-link: %s → %s (%s, sim=%.3f)",
+                        edge_data["source_id"][:8],
+                        edge_data["target_id"][:8],
+                        edge_type.value,
+                        sim_score,
+                    )
+
+        return edges_created

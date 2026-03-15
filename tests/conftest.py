@@ -52,6 +52,10 @@ class MockLLMProvider(BaseLLMProvider):
         """Return ISA opcode programs based on prompt context."""
         prompt_lower = prompt.lower()
 
+        # Cross-trace link discovery — LNK_NODE
+        if "lnk_node" in prompt_lower and "strategy a" in prompt_lower:
+            return self._emit_cross_link(prompt)
+
         # SWS failure analysis — EXTRACT_CONSTRAINT
         if "extract_constraint" in prompt_lower and ("failure" in prompt_lower or "partial" in prompt_lower):
             # Extract trace_id from prompt
@@ -79,7 +83,7 @@ class MockLLMProvider(BaseLLMProvider):
             steps_text = prompt.split("Critical path steps:")[-1].split("Negative constraints:")[0] if "Critical path steps:" in prompt else ""
             step_lines = [l.strip() for l in steps_text.splitlines() if l.strip().startswith("[")]
 
-            lines = [f'BUILD_PARENT "{goal}" "Strategy for completing the task" 0.85']
+            lines = [f'BUILD_PARENT "{goal}" "Strategy for: {goal}" 0.85']
             for i, step_line in enumerate(step_lines):
                 # Parse step: [idx] reasoning → action → result
                 parts = step_line.split("→")
@@ -98,6 +102,41 @@ class MockLLMProvider(BaseLLMProvider):
             return "\n".join(lines)
 
         # Default: just HALT
+        return "HALT"
+
+    @staticmethod
+    def _emit_cross_link(prompt: str) -> str:
+        """Emit LNK_NODE opcodes for cross-trace link discovery.
+
+        Heuristic: if both strategies mention related keywords, emit a causal
+        link. Otherwise emit nothing (HALT only).
+        """
+        id_a = ""
+        id_b = ""
+        goal_a = ""
+        goal_b = ""
+        for line in prompt.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Strategy A (ID:"):
+                id_a = stripped.split("ID:")[1].rstrip("):").strip()
+            elif stripped.startswith("Strategy B (ID:"):
+                id_b = stripped.split("ID:")[1].rstrip("):").strip()
+            elif stripped.startswith("Goal:"):
+                if not goal_a:
+                    goal_a = stripped.split(":", 1)[1].strip().lower()
+                else:
+                    goal_b = stripped.split(":", 1)[1].strip().lower()
+
+        if not id_a or not id_b:
+            return "HALT"
+
+        # Simple relatedness heuristic for tests:
+        # If the goals share any significant word (>3 chars), they're related
+        words_a = {w for w in goal_a.split() if len(w) > 3}
+        words_b = {w for w in goal_b.split() if len(w) > 3}
+        if words_a & words_b:
+            return f'LNK_NODE {id_a} {id_b} "causal"\nHALT'
+
         return "HALT"
 
     @staticmethod
@@ -123,7 +162,7 @@ class MockLLMProvider(BaseLLMProvider):
 class MockEmbeddingEncoder:
     """Deterministic embedding encoder for testing — uses hash-based vectors."""
 
-    def __init__(self, dim: int = 384) -> None:
+    def __init__(self, dim: int = 768) -> None:
         self._dim = dim
 
     @property
@@ -150,7 +189,7 @@ def mock_llm():
 
 @pytest.fixture
 def mock_encoder():
-    return MockEmbeddingEncoder(dim=384)
+    return MockEmbeddingEncoder(dim=768)
 
 
 @pytest.fixture
@@ -162,7 +201,7 @@ def store():
 
 @pytest.fixture
 def vector_index():
-    return VectorIndex(dim=384)
+    return VectorIndex(dim=768)
 
 
 @pytest.fixture

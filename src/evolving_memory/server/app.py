@@ -40,7 +40,7 @@ class MemoryServer:
             self.config.db_path = Path(db_path)
 
         self.store = SQLiteStore(self.config.db_path)
-        self.encoder = EmbeddingEncoder(self.config.embedding_model)
+        self.encoder = EmbeddingEncoder(self.config.embedding_model, dim=self.config.embedding_dim)
         self.index = VectorIndex(
             dim=self.config.embedding_dim,
             index_path=self.config.faiss_path,
