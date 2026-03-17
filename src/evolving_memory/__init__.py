@@ -83,6 +83,7 @@ class CognitiveTrajectoryEngine:
     def __init__(
         self,
         llm: BaseLLMProvider,
+        dreaming_llm: BaseLLMProvider | None = None,
         config: CTEConfig | None = None,
         db_path: str | Path | None = None,
     ) -> None:
@@ -98,7 +99,7 @@ class CognitiveTrajectoryEngine:
         )
         self._session_mgr = SessionManager(self._store)
         self._dream_engine = DreamEngine(
-            llm=llm,
+            llm=dreaming_llm or llm,
             store=self._store,
             index=self._index,
             encoder=self._encoder,

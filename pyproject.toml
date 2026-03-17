@@ -24,7 +24,8 @@ server = [
     "uvicorn[standard]>=0.20,<1.0",
     "websockets>=11.0,<14.0",
 ]
-all = ["evolving-memory[openai,anthropic,server]"]
+beeai = ["beeai-framework>=0.1"]
+all = ["evolving-memory[openai,anthropic,server,beeai]"]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
