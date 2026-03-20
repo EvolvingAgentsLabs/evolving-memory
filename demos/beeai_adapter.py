@@ -290,13 +290,18 @@ class EvolvingMemoryAdapter:
         return per_step_prompt + iter_tokens
 
 
+def _estimate_cost_usd(tokens: int, price_per_million: float = 0.15) -> float:
+    """Estimate API cost in USD given token count and price per 1M tokens."""
+    return tokens * price_per_million / 1_000_000
+
+
 def print_metrics_comparison(
     label_a: str,
     metrics_a: RunMetrics,
     label_b: str,
     metrics_b: RunMetrics,
 ) -> None:
-    """Print a formatted comparison table of two runs."""
+    """Print a formatted comparison table of two runs with cost projections."""
     def improvement(a: float, b: float) -> str:
         if a == 0:
             return "N/A"
@@ -305,11 +310,15 @@ def print_metrics_comparison(
             return f"{pct:.0f}%"
         return f"+{pct:.0f}%"
 
+    cost_a = _estimate_cost_usd(metrics_a.total_tokens)
+    cost_b = _estimate_cost_usd(metrics_b.total_tokens)
+
     rows = [
         ("ReAct Steps", metrics_a.steps, metrics_b.steps),
         ("Tool Calls", metrics_a.tool_calls, metrics_b.tool_calls),
         ("Tool Errors", metrics_a.tool_errors, metrics_b.tool_errors),
         ("Total Tokens (est)", metrics_a.total_tokens, metrics_b.total_tokens),
+        ("Est. Cost / task", f"${cost_a:.4f}", f"${cost_b:.4f}"),
         ("Latency (seconds)", f"{metrics_a.latency_s:.1f}", f"{metrics_b.latency_s:.1f}"),
         ("Success", "Yes" if metrics_a.success else "No", "Yes" if metrics_b.success else "No"),
     ]
@@ -331,4 +340,17 @@ def print_metrics_comparison(
             print(f"| {label:<{col_w[0]}} | {str(val_a):>{col_w[1]}} | {str(val_b):>{col_w[1]}} | {'':>{col_w[3]}} |")
 
     print(sep)
+
+    # Enterprise cost projection
+    if metrics_a.total_tokens > 0 and metrics_b.total_tokens < metrics_a.total_tokens:
+        monthly_tasks = 100_000
+        monthly_save = (cost_a - cost_b) * monthly_tasks
+        yearly_save = monthly_save * 12
+        print()
+        print(f"  ENTERPRISE COST PROJECTION (at {monthly_tasks:,} tasks/month):")
+        print(f"    Without Memory:  ${cost_a * monthly_tasks:,.2f}/month")
+        print(f"    With Memory:     ${cost_b * monthly_tasks:,.2f}/month")
+        print(f"    Monthly Savings: ${monthly_save:,.2f}/month")
+        print(f"    Annual Savings:  ${yearly_save:,.2f}/year")
+
     print()

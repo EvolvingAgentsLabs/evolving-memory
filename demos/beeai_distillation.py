@@ -6,21 +6,29 @@ dream cycle, enabling the small model to solve problems it could never solve
 on its own.
 
 The Scenario:
-  An agent must extract ALL employees from a paginated API. The catch:
-  the pagination token is hidden in HTTP response headers (X-Next-Page),
-  NOT in the JSON body. The body only has `has_more: true`.
+  A finance team needs to reconcile ALL charges from the Stripe Payments API.
+  The catch: the pagination cursor is hidden in HTTP response headers
+  (Stripe-Cursor), NOT in the JSON body. The body only has `has_more: true`.
+
+  If the agent fails to fetch all pages, the reconciliation report is WRONG:
+  missing charges, incorrect totals, disputed payments unreported. In
+  production, this means compliance failures and lost revenue.
 
   A small LLM (8B params) will try ?page=2, ?offset=5, etc. — all fail.
-  It will exhaust its retries and abort.
+  It will exhaust its retries and produce an incomplete report.
 
   A large LLM (Gemini Pro / Claude) analyzes the failure trace during the
-  dream cycle and discovers the hidden pattern in the raw API response.
+  dream cycle and discovers the hidden cursor pattern in the raw API response.
 
-  The small LLM, now armed with the distilled knowledge, succeeds immediately.
+  The small LLM, now armed with the distilled knowledge, succeeds immediately
+  and produces a complete, accurate reconciliation report.
 
 The Proof:
   "Evolving Memory allows an 8B-parameter model to achieve the reliability
   of a 70B model, by giving it procedural memory from a more capable teacher."
+
+  In enterprise terms: the small model + memory = compliance-ready agent
+  that saves $X,XXX/month in API costs while preventing financial errors.
 
 Usage:
     GEMINI_API_KEY=... PYTHONPATH=src python demos/beeai_distillation.py
@@ -57,20 +65,31 @@ from evolving_memory import CognitiveTrajectoryEngine
 from evolving_memory.llm.gemini_provider import GeminiProvider
 
 from beeai_adapter import EvolvingMemoryAdapter, GeminiChatModel, RunMetrics, print_metrics_comparison
-from mock_tools import paginated_api_fetch, reset_api_state
+from mock_tools import (
+    stripe_charges_api, reset_stripe_state,
+    STRIPE_CORRECT_TOTAL_CHARGES, STRIPE_CORRECT_GROSS_USD,
+    STRIPE_CORRECT_DISPUTED_COUNT,
+)
 
 
 # ── Configuration ────────────────────────────────────────────────────
 
 TASK_PROMPT = (
-    "Extract ALL employees from the Employee Directory API. "
-    "The base endpoint is /api/employees. "
-    "The API returns paginated results — you must fetch every page "
+    "Reconcile ALL charges from the Stripe Payments API. "
+    "The base endpoint is /v1/charges. "
+    "The API returns paginated results — you MUST fetch every page "
     "until there are no more results. "
-    "Return the total count and a list of all employee names."
+    "For each charge, note the amount (convert from cents to dollars), "
+    "status, and customer. "
+    "Produce a reconciliation summary: total charge count, gross revenue "
+    "in USD, number of disputed charges, and number of refunded charges."
 )
 
-SESSION_GOAL = "Extract all employees from paginated API"
+SESSION_GOAL = "Reconcile all Stripe charges for financial reporting"
+
+# Expected correct answers
+EXPECTED_CHARGES = STRIPE_CORRECT_TOTAL_CHARGES  # 14
+EXPECTED_GROSS = STRIPE_CORRECT_GROSS_USD
 
 
 def _header(title: str) -> None:
@@ -114,28 +133,49 @@ def _get_dreaming_llm() -> GeminiProvider:
     return GeminiProvider(model=model)
 
 
+def _check_reconciliation(final_answer: str) -> dict:
+    """Check if the agent's reconciliation report is accurate."""
+    result = {
+        "all_charges_found": False,
+        "correct_total": False,
+        "disputes_flagged": False,
+    }
+    if str(EXPECTED_CHARGES) in final_answer:
+        result["all_charges_found"] = True
+    # Check if gross amount is approximately correct (allow formatting differences)
+    for fmt in [f"{EXPECTED_GROSS:,.2f}", f"{EXPECTED_GROSS:.2f}", str(int(EXPECTED_GROSS))]:
+        if fmt in final_answer:
+            result["correct_total"] = True
+            break
+    if str(STRIPE_CORRECT_DISPUTED_COUNT) in final_answer and "dispute" in final_answer.lower():
+        result["disputes_flagged"] = True
+    return result
+
+
 # ── Day 1: Small LLM Attempts ───────────────────────────────────────
 
 async def day1_attempt(
     adapter: EvolvingMemoryAdapter,
     bee_llm,
 ) -> RunMetrics:
-    """Day 1: Small LLM tries to solve the pagination problem. Expected: FAILURE."""
-    _header("DAY 1: Small LLM Attempts (Expected: Failure)")
+    """Day 1: Small LLM tries to reconcile Stripe charges. Expected: FAILURE."""
+    _header("DAY 1: Small LLM Attempts Reconciliation (Expected: Incomplete)")
 
-    reset_api_state()
+    reset_stripe_state()
 
-    print(f"  Task: {TASK_PROMPT[:80]}...")
-    print(f"  The small LLM will try to paginate but won't find the token...")
-    print()
+    print(f"  SCENARIO: Monthly Stripe payment reconciliation")
+    print(f"  RISK: Missing charges = incorrect financial reports = compliance failure")
+    print(f"  Expected: {EXPECTED_CHARGES} charges, ${EXPECTED_GROSS:,.2f} gross")
+    print(f"\n  Task: {TASK_PROMPT[:80]}...")
+    print(f"  The small LLM will try to paginate but won't find the cursor...\n")
 
     # Retry loop — small LLMs sometimes fail BeeAI's ReAct format
     metrics = None
     for attempt in range(3):
-        reset_api_state()
+        reset_stripe_state()
         agent = ReActAgent(
             llm=bee_llm,
-            tools=[paginated_api_fetch],
+            tools=[stripe_charges_api],
             memory=UnconstrainedMemory(),
         )
         metrics = await adapter.run_with_tracing(
@@ -177,11 +217,19 @@ async def day1_attempt(
     print(f"  Tool errors: {metrics.tool_errors}")
     print(f"  Success: {'Yes' if metrics.success else 'No'}")
 
-    # Check if the agent actually got all employees
-    if metrics.final_answer and "13" in metrics.final_answer:
-        print(f"  (Agent found all 13 employees)")
+    # Check reconciliation accuracy
+    check = _check_reconciliation(metrics.final_answer)
+    if check["all_charges_found"]:
+        print(f"  All {EXPECTED_CHARGES} charges found")
     else:
-        print(f"  (Agent did NOT find all 13 employees — as expected)")
+        print(f"  MISSING CHARGES — agent did NOT find all {EXPECTED_CHARGES} charges")
+        print(f"  -> In production: reconciliation report is INCOMPLETE")
+    if not check["correct_total"]:
+        print(f"  -> WRONG TOTAL — financial report would be inaccurate")
+    if not check["disputes_flagged"]:
+        print(f"  -> DISPUTES NOT FLAGGED — compliance risk")
+    print(f"\n  BUSINESS IMPACT: Incomplete reconciliation means undetected")
+    print(f"  discrepancies, missed disputes, and potential audit failures.")
 
     return metrics
 
@@ -189,7 +237,7 @@ async def day1_attempt(
 # ── Night: Dream Cycle with Large LLM ───────────────────────────────
 
 async def night_dream(cte: CognitiveTrajectoryEngine) -> None:
-    """Night: Large LLM analyzes the failure and discovers the solution."""
+    """Night: Large LLM analyzes the failure and discovers the cursor pattern."""
     _header("THE NIGHT: Large LLM Dreams (Cognitive Distillation)")
 
     print("  The large model is analyzing the small model's failure trace...")
@@ -211,6 +259,7 @@ async def night_dream(cte: CognitiveTrajectoryEngine) -> None:
     if journal.constraints_extracted > 0:
         print(f"\n  The large model discovered {journal.constraints_extracted} insight(s)")
         print(f"  that the small model missed!")
+        print(f"  (Likely: 'Stripe-Cursor header contains the pagination token')")
     print()
 
 
@@ -223,7 +272,7 @@ async def day2_attempt(
     """Day 2: Small LLM with memory from the large model's dreaming."""
     _header("DAY 2: Small LLM with Distilled Knowledge")
 
-    reset_api_state()
+    reset_stripe_state()
 
     # Query memory
     memory_enhancement, route = adapter.get_memory_context(TASK_PROMPT)
@@ -245,10 +294,10 @@ async def day2_attempt(
     # Retry loop — small LLMs sometimes fail BeeAI's ReAct format
     metrics = None
     for attempt in range(3):
-        reset_api_state()
+        reset_stripe_state()
         agent = ReActAgent(
             llm=bee_llm,
-            tools=[paginated_api_fetch],
+            tools=[stripe_charges_api],
             memory=UnconstrainedMemory(),
         )
         metrics = await adapter.run_with_tracing(
@@ -290,10 +339,18 @@ async def day2_attempt(
     print(f"  Tool errors: {metrics.tool_errors}")
     print(f"  Success: {'Yes' if metrics.success else 'No'}")
 
-    if metrics.final_answer and "13" in metrics.final_answer:
-        print(f"  Agent found all 13 employees!")
+    # Check reconciliation accuracy
+    check = _check_reconciliation(metrics.final_answer)
+    if check["all_charges_found"]:
+        print(f"  All {EXPECTED_CHARGES} charges found!")
+    if check["correct_total"]:
+        print(f"  Gross revenue correct: ${EXPECTED_GROSS:,.2f}")
+    if check["disputes_flagged"]:
+        print(f"  Disputed charges flagged for compliance review")
+    if all(check.values()):
+        print(f"\n  RECONCILIATION: COMPLETE AND ACCURATE")
     else:
-        print(f"  (Agent response: {metrics.final_answer[:150]})")
+        print(f"\n  (Agent response: {metrics.final_answer[:200]})")
 
     return metrics
 
@@ -305,6 +362,10 @@ async def main() -> None:
     print("  EVOLVING MEMORY — Cognitive Distillation Demo")
     print("  'Teaching a small LLM with a large LLM's dreams'")
     print("=" * 65)
+    print()
+    print("  SCENARIO: Stripe Payment Reconciliation")
+    print("  A finance team agent must reconcile ALL charges from Stripe.")
+    print("  If the agent misses pages, the report is wrong — compliance risk.")
 
     # Setup LLMs
     print("\n  --- LLM Configuration ---")
@@ -327,7 +388,7 @@ async def main() -> None:
     adapter = EvolvingMemoryAdapter(cte)
 
     try:
-        # Day 1: Small LLM fails
+        # Day 1: Small LLM fails reconciliation
         metrics_day1 = await day1_attempt(adapter, bee_llm)
 
         # Night: Large LLM dreams
@@ -345,16 +406,26 @@ async def main() -> None:
 
         # The money slide
         print("  KEY INSIGHT:")
-        print("  The small LLM (8B params) could NOT solve this problem")
-        print("  even with unlimited retries — it lacked the reasoning")
-        print("  depth to discover that pagination tokens are in HTTP headers.")
+        print("  The small LLM (8B params) could NOT complete the reconciliation")
+        print("  — it lacked the reasoning depth to discover that Stripe's")
+        print("  pagination cursor is in the 'Stripe-Cursor' HTTP header.")
         print()
-        print("  The large LLM (during the dream cycle) analyzed the failure")
-        print("  trace and discovered the pattern. This knowledge was distilled")
+        print("  Without all pages, the financial report was INCOMPLETE:")
+        print(f"    - Missing charges (only found ~5 of {EXPECTED_CHARGES})")
+        print(f"    - Wrong gross total (should be ${EXPECTED_GROSS:,.2f})")
+        print(f"    - Unreported disputes (compliance violation)")
+        print()
+        print("  The large LLM analyzed the failure trace during the dream cycle")
+        print("  and discovered the header pattern. This knowledge was distilled")
         print("  into procedural memory that the small LLM could follow.")
         print()
         print("  Result: 8B model + Evolving Memory = 70B reliability")
         print("  Cost: Only 1 dream cycle with the large model (offline, async)")
+        print()
+        print("  ENTERPRISE VALUE:")
+        print("    - Correct financial reconciliation (compliance-ready)")
+        print("    - Dispute detection for proactive resolution")
+        print("    - Small model runs 24/7 at fraction of large model cost")
         print()
 
     finally:

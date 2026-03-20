@@ -245,8 +245,20 @@ async def main() -> None:
         # Money slide callout
         if metrics_memory.total_tokens < metrics_baseline.total_tokens:
             savings_pct = (1 - metrics_memory.total_tokens / max(metrics_baseline.total_tokens, 1)) * 100
-            print(f"  Token savings: {savings_pct:.0f}%")
-            print(f"  'Evolving Memory makes a small LLM as reliable as a large one'")
+            error_reduction = (
+                (1 - metrics_memory.tool_errors / max(metrics_baseline.tool_errors, 1)) * 100
+                if metrics_baseline.tool_errors > 0 else 0
+            )
+            print(f"  KEY METRICS:")
+            print(f"    Token savings:    {savings_pct:.0f}%")
+            if error_reduction > 0:
+                print(f"    Error reduction:  {error_reduction:.0f}%")
+            print()
+            print(f"  BOTTOM LINE:")
+            print(f"    Evolving Memory makes a small, cheap LLM as reliable as a")
+            print(f"    large, expensive one — while cutting API costs by {savings_pct:.0f}%.")
+            print(f"    For enterprises running agents at scale, this translates to")
+            print(f"    significant savings AND fewer production errors.")
         print()
 
     finally:

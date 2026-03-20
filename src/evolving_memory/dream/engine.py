@@ -17,6 +17,7 @@ from .chunker import HierarchicalChunker
 from .connector import TopologicalConnector
 from .curator import TraceCurator
 from .domain_adapter import DreamDomainAdapter
+from .migration import MigrationTransform
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +43,27 @@ class DreamEngine:
         self._curator = TraceCurator(llm)
         self._chunker = HierarchicalChunker(llm)
         self._connector = TopologicalConnector(store, index, encoder, config.dream, llm)
+        self._migration_transforms: list[MigrationTransform] = []
+
+    def register_migration(self, transform: MigrationTransform) -> None:
+        """Register a cognitive migration transform for Phase 0.
+
+        Transforms are applied to legacy nodes during the dream cycle's
+        Phase 0 migration. They allow the LLM to re-evaluate and enrich
+        nodes when the ISA version changes.
+        """
+        self._migration_transforms.append(transform)
+        logger.info(
+            "Registered migration: %s -> %s",
+            transform.from_version, transform.to_version,
+        )
 
     async def dream(self) -> DreamJournalEntry:
         """Run a full dream cycle over all unprocessed sessions."""
         journal = DreamJournalEntry()
 
         # Phase 0: Migrate legacy data to current ISA version
-        self._migrate_legacy_data(journal)
+        await self._migrate_legacy_data(journal)
 
         sessions = self._store.get_unprocessed_sessions()
         if not sessions:
@@ -101,22 +116,41 @@ class DreamEngine:
         self._store.save_journal_entry(journal)
         return journal
 
-    def _migrate_legacy_data(self, journal: DreamJournalEntry) -> None:
-        """Phase 0 — re-stamp legacy nodes/traces to current ISA version.
+    async def _migrate_legacy_data(self, journal: DreamJournalEntry) -> None:
+        """Phase 0 — migrate and enrich legacy nodes/traces to current ISA version.
 
-        This runs during every dream cycle as reconsolidation. Currently it
-        just updates the isa_version field; future versions can apply
-        structural translations (e.g. opcode renames, field transforms).
+        This runs during every dream cycle as reconsolidation. It:
+        1. Re-stamps legacy isa_version fields
+        2. Applies registered MigrationTransforms (LLM-powered enrichment)
+
+        Transforms allow the LLM to retroactively re-evaluate legacy nodes
+        under new cognitive rules — e.g. adding risk assessment, compliance
+        tags, or restructuring memory content.
         """
         legacy_nodes = self._store.get_legacy_parent_nodes(ISA_VERSION)
+        nodes_enriched = 0
+
         if legacy_nodes:
             for node in legacy_nodes:
+                # Apply matching migration transforms (LLM-powered enrichment)
+                enriched = await self._apply_transforms(node, journal)
+                if enriched:
+                    nodes_enriched += 1
+                # Re-stamp to current ISA version
                 self._store.update_parent_node_isa_version(node.node_id, ISA_VERSION)
+
             journal.nodes_migrated = len(legacy_nodes)
             journal.phase_log.append(
                 f"Phase 0: migrated {len(legacy_nodes)} legacy parent nodes to ISA {ISA_VERSION}"
             )
-            logger.info("Migrated %d legacy parent nodes to ISA %s", len(legacy_nodes), ISA_VERSION)
+            if nodes_enriched > 0:
+                journal.phase_log.append(
+                    f"Phase 0: enriched {nodes_enriched} nodes via cognitive migration transforms"
+                )
+            logger.info(
+                "Migrated %d legacy parent nodes to ISA %s (%d enriched)",
+                len(legacy_nodes), ISA_VERSION, nodes_enriched,
+            )
 
         legacy_trace_count = self._store.get_legacy_trace_count(ISA_VERSION)
         if legacy_trace_count > 0:
@@ -131,3 +165,37 @@ class DreamEngine:
                 f"Phase 0: migrated {legacy_trace_count} legacy traces to ISA {ISA_VERSION}"
             )
             logger.info("Migrated %d legacy traces to ISA %s", legacy_trace_count, ISA_VERSION)
+
+    async def _apply_transforms(
+        self, node: ParentNode, journal: DreamJournalEntry,
+    ) -> bool:
+        """Apply registered migration transforms to a legacy node.
+
+        Returns True if any transform was applied.
+        """
+        if not self._migration_transforms:
+            return False
+
+        children = self._store.get_child_nodes_for_parent(node.node_id)
+        applied = False
+
+        for transform in self._migration_transforms:
+            if node.isa_version == transform.from_version:
+                try:
+                    node, children = await transform.transform(node, children, self._llm)
+                    # Persist the enriched node and children
+                    self._store.save_parent_node(node)
+                    for child in children:
+                        self._store.save_child_node(child)
+                    applied = True
+                    logger.info(
+                        "Applied migration %s->%s to node %s",
+                        transform.from_version, transform.to_version, node.node_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Migration transform %s->%s failed for node %s",
+                        transform.from_version, transform.to_version, node.node_id,
+                    )
+
+        return applied

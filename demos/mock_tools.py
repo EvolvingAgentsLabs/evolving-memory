@@ -4,9 +4,11 @@ These tools simulate realistic failure scenarios that small LLMs encounter:
 - Wrong column names in SQL databases
 - Missing library imports in Python execution
 - Hidden pagination tokens in API responses
+- Stripe API with amounts in cents and cursor pagination in headers
 
 Usage:
     from mock_tools import sales_db_query, python_calc, paginated_api_fetch, reset_api_state
+    from mock_tools import stripe_charges_api, reset_stripe_state
 """
 
 from __future__ import annotations
@@ -286,5 +288,182 @@ def paginated_api_fetch(endpoint: str) -> StringToolOutput:
     # Add pagination token to headers (NOT to body)
     if next_token:
         response["headers"]["X-Next-Page"] = next_token
+
+    return StringToolOutput(json.dumps(response, indent=2))
+
+
+# ── Tool 4: Stripe Charges API (Cents + Header Cursor Trap) ──────────
+
+# Simulated Stripe charges — amounts in CENTS (Stripe convention)
+_STRIPE_CHARGES = [
+    # Page 1 (5 charges)
+    {"id": "ch_1A2B3C", "amount": 499900, "currency": "usd", "status": "succeeded",
+     "description": "Enterprise Plan - Annual", "customer": "cus_acme_corp",
+     "metadata": {"invoice": "INV-2024-001", "contract": "C-8801"}},
+    {"id": "ch_4D5E6F", "amount": 12500, "currency": "usd", "status": "succeeded",
+     "description": "API Overage - January", "customer": "cus_acme_corp",
+     "metadata": {"invoice": "INV-2024-002"}},
+    {"id": "ch_7G8H9I", "amount": 249900, "currency": "usd", "status": "succeeded",
+     "description": "Professional Plan - Annual", "customer": "cus_globex",
+     "metadata": {"invoice": "INV-2024-003", "contract": "C-8802"}},
+    {"id": "ch_JKLMNO", "amount": 89900, "currency": "usd", "status": "disputed",
+     "description": "Team Plan - Q1", "customer": "cus_initech",
+     "metadata": {"invoice": "INV-2024-004", "dispute_reason": "product_not_received",
+                   "dispute_amount": 89900, "dispute_deadline": "2024-03-15"}},
+    {"id": "ch_PQRSTU", "amount": 34900, "currency": "usd", "status": "succeeded",
+     "description": "Starter Plan - Monthly", "customer": "cus_umbrella",
+     "metadata": {"invoice": "INV-2024-005"}},
+    # Page 2 (5 charges)
+    {"id": "ch_VWXY01", "amount": 499900, "currency": "usd", "status": "succeeded",
+     "description": "Enterprise Plan - Annual", "customer": "cus_wayne_ent",
+     "metadata": {"invoice": "INV-2024-006", "contract": "C-8803"}},
+    {"id": "ch_234567", "amount": 15000, "currency": "usd", "status": "refunded",
+     "description": "Support Add-on - Refunded", "customer": "cus_globex",
+     "metadata": {"invoice": "INV-2024-007", "refund_reason": "duplicate_charge",
+                   "original_charge": "ch_DUP001"}},
+    {"id": "ch_89ABCD", "amount": 249900, "currency": "usd", "status": "succeeded",
+     "description": "Professional Plan - Annual", "customer": "cus_stark_ind",
+     "metadata": {"invoice": "INV-2024-008", "contract": "C-8804"}},
+    {"id": "ch_EFGH01", "amount": 199900, "currency": "usd", "status": "disputed",
+     "description": "Growth Plan - Annual", "customer": "cus_oscorp",
+     "metadata": {"invoice": "INV-2024-009", "dispute_reason": "fraudulent",
+                   "dispute_amount": 199900, "dispute_deadline": "2024-03-20"}},
+    {"id": "ch_IJKL23", "amount": 34900, "currency": "usd", "status": "succeeded",
+     "description": "Starter Plan - Monthly", "customer": "cus_daily_planet",
+     "metadata": {"invoice": "INV-2024-010"}},
+    # Page 3 (4 charges)
+    {"id": "ch_MNOP45", "amount": 749900, "currency": "usd", "status": "succeeded",
+     "description": "Enterprise Plus - Annual", "customer": "cus_lexcorp",
+     "metadata": {"invoice": "INV-2024-011", "contract": "C-8805"}},
+    {"id": "ch_QRST67", "amount": 8500, "currency": "usd", "status": "succeeded",
+     "description": "API Overage - February", "customer": "cus_stark_ind",
+     "metadata": {"invoice": "INV-2024-012"}},
+    {"id": "ch_UVWX89", "amount": 249900, "currency": "usd", "status": "succeeded",
+     "description": "Professional Plan - Annual", "customer": "cus_wayneent",
+     "metadata": {"invoice": "INV-2024-013", "contract": "C-8806"}},
+    {"id": "ch_YZ0123", "amount": 499900, "currency": "usd", "status": "succeeded",
+     "description": "Enterprise Plan - Annual", "customer": "cus_daily_planet",
+     "metadata": {"invoice": "INV-2024-014", "contract": "C-8807"}},
+]
+
+_STRIPE_PAGE_SIZE = 5
+_STRIPE_CURSORS = {
+    "": "cur_page2_8f3a",              # First page → cursor to page 2
+    "cur_page2_8f3a": "cur_page3_c7e1",  # Page 2 → cursor to page 3
+    "cur_page3_c7e1": "",                # Page 3 → no more
+}
+
+_stripe_call_count = 0
+
+
+def reset_stripe_state() -> None:
+    """Reset the Stripe API call counter between demo runs."""
+    global _stripe_call_count
+    _stripe_call_count = 0
+
+
+# Pre-computed correct answers for verification
+STRIPE_CORRECT_TOTAL_CHARGES = len(_STRIPE_CHARGES)
+STRIPE_CORRECT_GROSS_CENTS = sum(c["amount"] for c in _STRIPE_CHARGES)
+STRIPE_CORRECT_GROSS_USD = STRIPE_CORRECT_GROSS_CENTS / 100
+STRIPE_CORRECT_DISPUTED_COUNT = sum(1 for c in _STRIPE_CHARGES if c["status"] == "disputed")
+STRIPE_CORRECT_DISPUTED_CENTS = sum(
+    c["amount"] for c in _STRIPE_CHARGES if c["status"] == "disputed"
+)
+
+
+@tool
+def stripe_charges_api(endpoint: str) -> StringToolOutput:
+    """Fetch charges from the Stripe Payments API for reconciliation.
+
+    Base endpoint: /v1/charges
+    The API returns paginated results. Pagination uses cursor-based navigation.
+    Check the full response carefully for pagination information.
+
+    IMPORTANT: All amounts are in the smallest currency unit (e.g. cents for USD).
+
+    Args:
+        endpoint: API endpoint path, e.g. "/v1/charges" or "/v1/charges?starting_after=cursor"
+
+    Returns:
+        Full HTTP response including headers and JSON body.
+    """
+    global _stripe_call_count
+    _stripe_call_count += 1
+
+    # Parse the endpoint
+    path = endpoint.split("?")[0] if "?" in endpoint else endpoint
+    params: dict[str, str] = {}
+    if "?" in endpoint:
+        param_str = endpoint.split("?", 1)[1]
+        for pair in param_str.split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                params[k] = v
+
+    # Validate endpoint
+    if path.rstrip("/") != "/v1/charges":
+        return StringToolOutput(json.dumps({
+            "status": 404,
+            "headers": {"Content-Type": "application/json"},
+            "body": {"error": {"type": "invalid_request_error",
+                               "message": f"Unrecognized request URL: {path}"}},
+        }, indent=2))
+
+    # Determine cursor
+    cursor = params.get("starting_after", "")
+
+    # Common mistakes: trying page=N, offset=N, skip=N
+    for bad_param in ["page", "offset", "skip", "start", "page_token"]:
+        if bad_param in params:
+            return StringToolOutput(json.dumps({
+                "status": 400,
+                "headers": {"Content-Type": "application/json"},
+                "body": {"error": {"type": "invalid_request_error",
+                                   "message": f"Unknown parameter '{bad_param}'. "
+                                              f"Use 'starting_after' with a cursor value."}},
+            }, indent=2))
+
+    # Validate cursor
+    if cursor and cursor not in _STRIPE_CURSORS:
+        return StringToolOutput(json.dumps({
+            "status": 400,
+            "headers": {"Content-Type": "application/json"},
+            "body": {"error": {"type": "invalid_request_error",
+                               "message": f"Invalid cursor '{cursor}'."}},
+        }, indent=2))
+
+    # Determine slice
+    if cursor == "":
+        start_idx = 0
+    elif cursor == "cur_page2_8f3a":
+        start_idx = 5
+    else:  # cur_page3_c7e1
+        start_idx = 10
+
+    page_data = _STRIPE_CHARGES[start_idx: start_idx + _STRIPE_PAGE_SIZE]
+    next_cursor = _STRIPE_CURSORS[cursor]
+    has_more = bool(next_cursor)
+
+    # Build response — TRAP: pagination cursor is in HEADERS (Stripe-Cursor),
+    # body only has has_more: true/false without the actual cursor value
+    response = {
+        "status": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Stripe-Version": "2024-01-01",
+            "X-Request-Id": f"req_{_stripe_call_count:04d}",
+        },
+        "body": {
+            "object": "list",
+            "data": page_data,
+            "has_more": has_more,
+            "url": "/v1/charges",
+        },
+    }
+
+    # Add cursor to HEADERS only (not in body) — this is the trap
+    if next_cursor:
+        response["headers"]["Stripe-Cursor"] = next_cursor
 
     return StringToolOutput(json.dumps(response, indent=2))

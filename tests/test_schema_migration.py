@@ -17,6 +17,8 @@ from evolving_memory.models.trace import TraceEntry
 from evolving_memory.storage.migrations import run_migrations
 from evolving_memory.storage.sqlite_store import SQLiteStore
 from evolving_memory.dream.engine import DreamEngine
+from evolving_memory.dream.migration import MigrationTransform
+from evolving_memory.models.graph import ChildNode
 from evolving_memory.config import CTEConfig
 
 from conftest import (
@@ -317,3 +319,91 @@ class TestCognitiveMigration:
         assert journal.nodes_migrated == 0
         assert journal.traces_migrated == 0
         assert not any("Phase 0" in entry for entry in journal.phase_log)
+
+    @pytest.mark.asyncio
+    async def test_migration_transform_enriches_nodes(self, store, vector_index, config):
+        """MigrationTransform should enrich legacy nodes during Phase 0."""
+
+        class MockTransform(MigrationTransform):
+            from_version = "0.9"
+            to_version = "1.0"
+
+            async def transform(self, node, children, llm):
+                node.content = f"{node.content}\n[enriched: risk_level=high]"
+                node.summary = f"[RISK: HIGH] {node.summary}"
+                for child in children:
+                    child.content = f"{child.content}\n[risk_level: medium]"
+                return node, children
+
+        llm = MockLLMProvider()
+        encoder = MockEmbeddingEncoder()
+        engine = DreamEngine(llm, store, vector_index, encoder, config)
+        engine.register_migration(MockTransform())
+
+        # Create a parent node with children at old ISA version
+        node = make_parent_node(goal="legacy strategy", summary="old summary")
+        store.save_parent_node(node)
+        child = ChildNode(
+            parent_node_id=node.node_id,
+            hierarchy_level=HierarchyLevel.TACTICAL,
+            step_index=0,
+            reasoning="step 1",
+            action="do something",
+            content="step content",
+        )
+        store.save_child_node(child)
+
+        # Mark as legacy
+        store._conn.execute(
+            "UPDATE parent_nodes SET isa_version = '0.9' WHERE node_id = ?",
+            (node.node_id,),
+        )
+        store._conn.commit()
+
+        journal = await engine.dream()
+
+        # Node should be migrated AND enriched
+        updated = store.get_parent_node(node.node_id)
+        assert updated.isa_version == ISA_VERSION
+        assert "[enriched: risk_level=high]" in updated.content
+        assert "[RISK: HIGH]" in updated.summary
+
+        # Child should be enriched
+        children = store.get_child_nodes_for_parent(node.node_id)
+        assert len(children) == 1
+        assert "[risk_level: medium]" in children[0].content
+
+        # Journal should record enrichment
+        assert journal.nodes_migrated == 1
+        assert any("enriched" in entry for entry in journal.phase_log)
+
+    @pytest.mark.asyncio
+    async def test_migration_transform_version_mismatch_skips(self, store, vector_index, config):
+        """Transform should only apply when from_version matches."""
+
+        class WrongVersionTransform(MigrationTransform):
+            from_version = "0.5"  # Doesn't match "0.9"
+            to_version = "1.0"
+
+            async def transform(self, node, children, llm):
+                node.content = "SHOULD NOT HAPPEN"
+                return node, children
+
+        llm = MockLLMProvider()
+        encoder = MockEmbeddingEncoder()
+        engine = DreamEngine(llm, store, vector_index, encoder, config)
+        engine.register_migration(WrongVersionTransform())
+
+        node = make_parent_node(goal="test")
+        original_content = node.content
+        store.save_parent_node(node)
+        store._conn.execute(
+            "UPDATE parent_nodes SET isa_version = '0.9' WHERE node_id = ?",
+            (node.node_id,),
+        )
+        store._conn.commit()
+
+        await engine.dream()
+
+        updated = store.get_parent_node(node.node_id)
+        assert updated.content == original_content  # Not transformed

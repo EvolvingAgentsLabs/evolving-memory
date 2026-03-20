@@ -10,6 +10,7 @@ from .capture.session import SessionManager
 from .capture.trace_logger import TraceLogger
 from .config import CTEConfig, ISAConfig
 from .dream.engine import DreamEngine
+from .dream.migration import MigrationTransform
 from .embeddings.encoder import EmbeddingEncoder
 from .isa.opcodes import ISA_VERSION, ISAVersionRegistry, Instruction, Opcode, Program
 from .isa.parser import InstructionParser
@@ -39,6 +40,8 @@ __all__ = [
     "InstructionParser",
     "serialize_instruction",
     "serialize_program",
+    # Migration
+    "MigrationTransform",
     # VM
     "CognitiveVM",
     "VMContext",
@@ -113,6 +116,16 @@ class CognitiveTrajectoryEngine:
             encoder=self._encoder,
             config=self._config.router,
         )
+
+    # ── Migration ────────────────────────────────────────────────────
+
+    def register_migration(self, transform: MigrationTransform) -> None:
+        """Register a cognitive migration transform for Phase 0 of the dream cycle.
+
+        When the ISA version changes, transforms allow the LLM to retroactively
+        re-evaluate and enrich legacy memory nodes under new cognitive rules.
+        """
+        self._dream_engine.register_migration(transform)
 
     # ── Capture ─────────────────────────────────────────────────────
 
