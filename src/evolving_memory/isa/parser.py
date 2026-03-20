@@ -5,7 +5,14 @@ from __future__ import annotations
 import re
 import shlex
 
-from .opcodes import Instruction, Opcode, Program, OPCODE_BY_NAME
+from .opcodes import (
+    ISA_VERSION,
+    Instruction,
+    Opcode,
+    Program,
+    OPCODE_BY_NAME,
+    get_registry,
+)
 
 
 class InstructionParser:
@@ -17,9 +24,23 @@ class InstructionParser:
       3. Final: str.split() — always succeeds, loses multi-word args
     """
 
+    def __init__(self, isa_version: str | None = None) -> None:
+        self._isa_version = isa_version or ISA_VERSION
+        # Build a version-specific lookup if the version differs from current
+        registry = get_registry()
+        version_opcodes = registry.get(self._isa_version)
+        if version_opcodes is not None:
+            self._opcode_lookup = {
+                name: OPCODE_BY_NAME[name]
+                for name in version_opcodes
+                if name in OPCODE_BY_NAME
+            }
+        else:
+            self._opcode_lookup = OPCODE_BY_NAME
+
     def parse(self, text: str) -> Program:
         """Parse multi-line text into a Program."""
-        program = Program(raw_output=text)
+        program = Program(raw_output=text, isa_version=self._isa_version)
         for line_number, raw_line in enumerate(text.splitlines(), start=1):
             line = raw_line.strip()
             # Skip empty lines and comments
@@ -39,7 +60,10 @@ class InstructionParser:
             return None
 
         opcode_name = tokens[0].upper()
-        opcode = OPCODE_BY_NAME.get(opcode_name)
+        # Try version-specific lookup first, then fall back to full set
+        opcode = self._opcode_lookup.get(opcode_name)
+        if opcode is None:
+            opcode = OPCODE_BY_NAME.get(opcode_name)
         if opcode is None:
             program.parse_errors.append(
                 f"L{line_number}: unknown opcode '{tokens[0]}'"

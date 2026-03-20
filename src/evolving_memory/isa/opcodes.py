@@ -5,6 +5,35 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 
+# Current ISA version — bumped whenever opcodes are added/removed/changed.
+ISA_VERSION = "1.0"
+
+
+class ISAVersionRegistry:
+    """Maps ISA version strings to their opcode sets.
+
+    Single source of truth for which opcodes exist in each version,
+    and what the current version is.
+    """
+
+    def __init__(self) -> None:
+        self._versions: dict[str, set[str]] = {}
+
+    def register(self, version: str, opcode_names: set[str]) -> None:
+        self._versions[version] = opcode_names
+
+    def get(self, version: str) -> set[str] | None:
+        return self._versions.get(version)
+
+    def current(self) -> str:
+        return ISA_VERSION
+
+    def all_versions(self) -> list[str]:
+        return sorted(self._versions.keys())
+
+    def supports(self, version: str) -> bool:
+        return version in self._versions
+
 
 class Opcode(IntEnum):
     """Cognitive ISA opcodes for the Evolving Memory VM."""
@@ -52,3 +81,14 @@ class Program:
     instructions: list[Instruction] = field(default_factory=list)
     raw_output: str = ""
     parse_errors: list[str] = field(default_factory=list)
+    isa_version: str = ISA_VERSION
+
+
+# ── Global registry ──────────────────────────────────────────────────
+_registry = ISAVersionRegistry()
+_registry.register(ISA_VERSION, set(OPCODE_BY_NAME.keys()))
+
+
+def get_registry() -> ISAVersionRegistry:
+    """Return the global ISA version registry."""
+    return _registry

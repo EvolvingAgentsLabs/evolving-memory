@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
+from ..isa.opcodes import ISA_VERSION
 from .hierarchy import HierarchyLevel, TraceOutcome, EdgeType
 
 
@@ -41,6 +42,7 @@ class ParentNode(ThoughtNode):
     success_count: int = 0
     failure_count: int = 0
     version: int = 1
+    isa_version: str = ISA_VERSION
 
     @property
     def success_rate(self) -> float:

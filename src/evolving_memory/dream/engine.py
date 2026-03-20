@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from ..config import CTEConfig
 from ..embeddings.encoder import EmbeddingEncoder
+from ..isa.opcodes import ISA_VERSION
 from ..llm.base import BaseLLMProvider
 from ..models.strategy import DreamJournalEntry
 from ..storage.sqlite_store import SQLiteStore
@@ -45,6 +46,9 @@ class DreamEngine:
     async def dream(self) -> DreamJournalEntry:
         """Run a full dream cycle over all unprocessed sessions."""
         journal = DreamJournalEntry()
+
+        # Phase 0: Migrate legacy data to current ISA version
+        self._migrate_legacy_data(journal)
 
         sessions = self._store.get_unprocessed_sessions()
         if not sessions:
@@ -96,3 +100,34 @@ class DreamEngine:
         journal.ended_at = datetime.now(timezone.utc)
         self._store.save_journal_entry(journal)
         return journal
+
+    def _migrate_legacy_data(self, journal: DreamJournalEntry) -> None:
+        """Phase 0 — re-stamp legacy nodes/traces to current ISA version.
+
+        This runs during every dream cycle as reconsolidation. Currently it
+        just updates the isa_version field; future versions can apply
+        structural translations (e.g. opcode renames, field transforms).
+        """
+        legacy_nodes = self._store.get_legacy_parent_nodes(ISA_VERSION)
+        if legacy_nodes:
+            for node in legacy_nodes:
+                self._store.update_parent_node_isa_version(node.node_id, ISA_VERSION)
+            journal.nodes_migrated = len(legacy_nodes)
+            journal.phase_log.append(
+                f"Phase 0: migrated {len(legacy_nodes)} legacy parent nodes to ISA {ISA_VERSION}"
+            )
+            logger.info("Migrated %d legacy parent nodes to ISA %s", len(legacy_nodes), ISA_VERSION)
+
+        legacy_trace_count = self._store.get_legacy_trace_count(ISA_VERSION)
+        if legacy_trace_count > 0:
+            # Bulk update traces
+            self._store._conn.execute(
+                "UPDATE trace_entries SET isa_version = ? WHERE isa_version != ?",
+                (ISA_VERSION, ISA_VERSION),
+            )
+            self._store._conn.commit()
+            journal.traces_migrated = legacy_trace_count
+            journal.phase_log.append(
+                f"Phase 0: migrated {legacy_trace_count} legacy traces to ISA {ISA_VERSION}"
+            )
+            logger.info("Migrated %d legacy traces to ISA %s", legacy_trace_count, ISA_VERSION)

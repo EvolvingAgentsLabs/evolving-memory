@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
+from ..isa.opcodes import ISA_VERSION
 from .hierarchy import HierarchyLevel, TraceOutcome, TraceSource
 
 
@@ -38,6 +39,7 @@ class TraceEntry(BaseModel):
     session_id: str | None = None
     source: TraceSource = TraceSource.UNKNOWN_SOURCE
     tags: list[str] = Field(default_factory=list)
+    isa_version: str = ISA_VERSION
     created_at: datetime = Field(default_factory=_utcnow)
 
 

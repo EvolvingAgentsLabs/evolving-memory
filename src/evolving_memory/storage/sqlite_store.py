@@ -7,10 +7,12 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..isa.opcodes import ISA_VERSION
 from ..models.graph import ParentNode, ChildNode, ThoughtEdge
 from ..models.hierarchy import HierarchyLevel, TraceOutcome, TraceSource, EdgeType
 from ..models.trace import TraceEntry, TraceSession, ActionEntry
 from ..models.strategy import NegativeConstraint, DreamJournalEntry
+from .migrations import run_migrations
 
 
 def _now_iso() -> str:
@@ -26,6 +28,7 @@ class SQLiteStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._create_tables()
+        run_migrations(self._conn)
 
     # ── schema ──────────────────────────────────────────────────────
 
@@ -47,6 +50,7 @@ class SQLiteStore:
                 success_count INTEGER NOT NULL DEFAULT 0,
                 failure_count INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL DEFAULT 1,
+                isa_version TEXT NOT NULL DEFAULT '1.0',
                 domain TEXT NOT NULL DEFAULT 'default',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -104,6 +108,7 @@ class SQLiteStore:
                 confidence REAL NOT NULL DEFAULT 0.0,
                 source TEXT NOT NULL DEFAULT 'unknown_source',
                 tags TEXT NOT NULL DEFAULT '[]',
+                isa_version TEXT NOT NULL DEFAULT '1.0',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES trace_sessions(session_id)
             );
@@ -131,6 +136,8 @@ class SQLiteStore:
                 nodes_merged INTEGER NOT NULL DEFAULT 0,
                 edges_created INTEGER NOT NULL DEFAULT 0,
                 constraints_extracted INTEGER NOT NULL DEFAULT 0,
+                traces_migrated INTEGER NOT NULL DEFAULT 0,
+                nodes_migrated INTEGER NOT NULL DEFAULT 0,
                 phase_log TEXT NOT NULL DEFAULT '[]'
             );
 
@@ -153,14 +160,15 @@ class SQLiteStore:
             """INSERT OR REPLACE INTO parent_nodes
                (node_id, hierarchy_level, content, summary, confidence, access_count,
                 goal, outcome, trigger_goals, negative_constraints, child_node_ids,
-                success_count, failure_count, version, domain, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                success_count, failure_count, version, isa_version, domain,
+                created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 node.node_id, int(node.hierarchy_level), node.content, node.summary,
                 node.confidence, node.access_count, node.goal, node.outcome.value,
                 json.dumps(node.trigger_goals), json.dumps(node.negative_constraints),
                 json.dumps(node.child_node_ids), node.success_count, node.failure_count,
-                node.version, domain, node.created_at.isoformat(), now,
+                node.version, node.isa_version, domain, node.created_at.isoformat(), now,
             ),
         )
         self._conn.commit()
@@ -229,6 +237,7 @@ class SQLiteStore:
             success_count=row["success_count"],
             failure_count=row["failure_count"],
             version=row["version"],
+            isa_version=row["isa_version"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
@@ -342,13 +351,14 @@ class SQLiteStore:
         self._conn.execute(
             """INSERT OR REPLACE INTO trace_entries
                (trace_id, session_id, hierarchy_level, parent_trace_id, goal,
-                outcome, confidence, source, tags, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                outcome, confidence, source, tags, isa_version, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 trace.trace_id, trace.session_id, int(trace.hierarchy_level),
                 trace.parent_trace_id, trace.goal, trace.outcome.value,
                 trace.confidence, trace.source.value,
-                json.dumps(trace.tags), trace.created_at.isoformat(),
+                json.dumps(trace.tags), trace.isa_version,
+                trace.created_at.isoformat(),
             ),
         )
         for action in trace.action_entries:
@@ -404,6 +414,7 @@ class SQLiteStore:
                 source=TraceSource(row["source"]) if row["source"] else TraceSource.UNKNOWN_SOURCE,
                 action_entries=actions,
                 tags=json.loads(row["tags"]),
+                isa_version=row["isa_version"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             ))
         return traces
@@ -429,13 +440,15 @@ class SQLiteStore:
         self._conn.execute(
             """INSERT OR REPLACE INTO dream_journal
                (journal_id, started_at, ended_at, traces_processed,
-                nodes_created, nodes_merged, edges_created, constraints_extracted, phase_log)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+                nodes_created, nodes_merged, edges_created, constraints_extracted,
+                traces_migrated, nodes_migrated, phase_log)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 entry.journal_id, entry.started_at.isoformat(),
                 entry.ended_at.isoformat() if entry.ended_at else None,
                 entry.traces_processed, entry.nodes_created, entry.nodes_merged,
                 entry.edges_created, entry.constraints_extracted,
+                entry.traces_migrated, entry.nodes_migrated,
                 json.dumps(entry.phase_log),
             ),
         )
@@ -471,6 +484,40 @@ class SQLiteStore:
             )
             for r in rows
         ]
+
+    # ── ISA migration helpers ──────────────────────────────────────
+
+    def get_legacy_parent_nodes(self, current_isa_version: str | None = None) -> list[ParentNode]:
+        """Return all parent nodes whose isa_version != current."""
+        ver = current_isa_version or ISA_VERSION
+        rows = self._conn.execute(
+            "SELECT * FROM parent_nodes WHERE isa_version != ?", (ver,)
+        ).fetchall()
+        return [self._row_to_parent(r) for r in rows]
+
+    def get_legacy_trace_count(self, current_isa_version: str | None = None) -> int:
+        """Count trace entries whose isa_version != current."""
+        ver = current_isa_version or ISA_VERSION
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM trace_entries WHERE isa_version != ?", (ver,)
+        ).fetchone()
+        return row[0]
+
+    def update_parent_node_isa_version(self, node_id: str, isa_version: str) -> None:
+        """Re-stamp a parent node's isa_version."""
+        self._conn.execute(
+            "UPDATE parent_nodes SET isa_version = ?, updated_at = ? WHERE node_id = ?",
+            (isa_version, _now_iso(), node_id),
+        )
+        self._conn.commit()
+
+    def update_trace_isa_version(self, trace_id: str, isa_version: str) -> None:
+        """Re-stamp a trace entry's isa_version."""
+        self._conn.execute(
+            "UPDATE trace_entries SET isa_version = ? WHERE trace_id = ?",
+            (isa_version, trace_id),
+        )
+        self._conn.commit()
 
     # ── lifecycle ───────────────────────────────────────────────────
 

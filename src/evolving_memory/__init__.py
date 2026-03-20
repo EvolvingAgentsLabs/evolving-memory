@@ -11,7 +11,7 @@ from .capture.trace_logger import TraceLogger
 from .config import CTEConfig, ISAConfig
 from .dream.engine import DreamEngine
 from .embeddings.encoder import EmbeddingEncoder
-from .isa.opcodes import Instruction, Opcode, Program
+from .isa.opcodes import ISA_VERSION, ISAVersionRegistry, Instruction, Opcode, Program
 from .isa.parser import InstructionParser
 from .isa.serializer import serialize_instruction, serialize_program
 from .llm.base import BaseLLMProvider
@@ -31,6 +31,8 @@ __all__ = [
     "CTEConfig",
     "ISAConfig",
     # ISA
+    "ISA_VERSION",
+    "ISAVersionRegistry",
     "Opcode",
     "Instruction",
     "Program",

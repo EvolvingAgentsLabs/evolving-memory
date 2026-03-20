@@ -47,4 +47,6 @@ class DreamJournalEntry(BaseModel):
     edges_created: int = 0
     cross_edges_created: int = 0
     constraints_extracted: int = 0
+    traces_migrated: int = 0
+    nodes_migrated: int = 0
     phase_log: list[str] = Field(default_factory=list)

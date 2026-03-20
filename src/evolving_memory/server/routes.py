@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from ..isa.opcodes import ISA_VERSION, get_registry
 from ..models.hierarchy import HierarchyLevel, TraceOutcome, TraceSource
 from ..models.trace import ActionEntry, TraceEntry, TraceSession
 from ..capture.session import SessionManager
@@ -246,11 +247,23 @@ def create_router(server: "MemoryServer") -> APIRouter:
             "nodes_merged": journal.nodes_merged,
         }
 
+    # ── ISA Version ──────────────────────────────────────────────
+
+    @router.get("/isa/version")
+    async def isa_version():
+        registry = get_registry()
+        return {
+            "current": ISA_VERSION,
+            "supported": registry.all_versions(),
+        }
+
     # ── Stats ────────────────────────────────────────────────────
 
     @router.get("/stats")
     async def stats():
-        return server.store.get_stats()
+        data = server.store.get_stats()
+        data["isa_version"] = ISA_VERSION
+        return data
 
     # ── WebSocket: Dream Progress ────────────────────────────────
 

@@ -4,7 +4,7 @@
 
 A bio-inspired memory system that captures agent execution traces, consolidates them through dream cycles (SWS/REM/Consolidation), and enables intelligent memory retrieval via topological graph traversal. Built on an **Agentic ISA** (Instruction Set Architecture) where LLMs emit structured opcodes instead of JSON.
 
-[![Tests](https://img.shields.io/badge/tests-139%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-161%20passed-brightgreen)]()
 [![Hypothesis](https://img.shields.io/badge/hypothesis-12%2F12%20validated-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-orange)]()
@@ -134,7 +134,7 @@ We ran 12 tests against the real production stack:
 - **Storage**: In-memory SQLite + FAISS (no persistence, clean state per test)
 - **Domains tested**: Software Engineering, Mathematics, Creative Writing, Scientific Reasoning, Cooking, Data Analysis, Machine Learning
 
-All 12 tests passed. Total execution time: **143.87 seconds** (most spent on LLM API calls during dream cycles).
+All 12 tests passed. Total execution time: **~165 seconds** (most spent on LLM API calls during dream cycles).
 
 ### Test 1: Semantic Embedding Quality
 
@@ -155,17 +155,17 @@ All 12 tests passed. Total execution time: **143.87 seconds** (most spent on LLM
 
 | Domain | Traces | Nodes Created | Edges Created | Query Confidence | Traversal Steps |
 |--------|--------|---------------|---------------|------------------|-----------------|
-| **Software Engineering** (JWT auth) | 1 | 1 | 7 | 0.884 | 3 steps |
+| **Software Engineering** (JWT auth) | 1 | 1 | 7 | 0.897 | 3 steps |
 | **Mathematics** (Fourier transforms) | 1 | 1 | 4 | 0.881 | 3 steps |
 | **Creative Writing** (narrative arc) | 1 | 1 | 7 | 0.805 | 3 steps |
-| **Scientific Reasoning** (experiment design) | 1 | 1 | 7 | 0.833 | 3 steps |
+| **Scientific Reasoning** (experiment design) | 1 | 1 | 7 | 0.843 | 3 steps |
 
-**Result**: The dream engine produced valid consolidated memory for every domain. The LLM (Gemini 2.5 Flash) correctly emitted `MARK_CRITICAL`, `BUILD_PARENT`, and `BUILD_CHILD` ISA opcodes for software, math, literature, and science traces alike. Query confidence ranged from 0.805 (creative writing) to 0.884 (software engineering), all well above the 0.4 router threshold.
+**Result**: The dream engine produced valid consolidated memory for every domain. The LLM (Gemini 2.5 Flash) correctly emitted `MARK_CRITICAL`, `BUILD_PARENT`, and `BUILD_CHILD` ISA opcodes for software, math, literature, and science traces alike. Query confidence ranged from 0.805 (creative writing) to 0.897 (software engineering), all well above the 0.4 router threshold. All traces and nodes were correctly stamped with `isa_version: "1.0"`.
 
 **Detailed Software Engineering traversal** (JWT authentication):
 ```
 Query: "how to implement JWT authentication?"
-Path: memory_traversal (confidence: 0.884)
+Path: memory_traversal (confidence: 0.897)
 
   Step 0: Read RFC 7519 and understand claims structure
   Step 1: Write jwt_utils.py with encode(payload, secret) function
@@ -210,13 +210,13 @@ This is how **knowledge graphs emerge from episodic traces**. The agent didn't e
 
 **Setup**: A trace of a failed database migration — running directly on production without backup, causing 2 hours of downtime and 8 hours of data loss.
 
-**Result**: The dream engine extracted **4 negative constraints**:
+**Result**: The dream engine extracted **2 negative constraints**:
 
 ```
-1. "Do not run database migrations directly on production without a recent, verified backup."
-2. "Do not execute database migrations on production without first testing them in a pre-production environment."
-3. "Database migration scripts must be idempotent or include checks for existing schema elements."
-4. "Do not perform database operations that lead to irreversible loss of recent user data."
+1. "Do not run database migrations directly on production without a pre-migration backup
+    or a robust rollback plan."
+2. "Do not execute database migrations without first verifying the current state of the
+    database to ensure idempotency (e.g., checking if a column already exists before adding it)."
 ```
 
 These constraints are permanently attached to the memory node and will be surfaced whenever the agent encounters a similar task in the future. This is the artificial equivalent of "don't touch the hot stove" — the system transforms negative experiences into explicit avoidance rules.
@@ -661,9 +661,10 @@ The same memory server (REST/WebSocket on port 8420) serves all three layers. A 
 - The consolidation pipeline is domain-agnostic (tested across 6 domains)
 - Real LLMs can reliably emit ISA opcodes for all three dream phases
 - Semantic embeddings provide sufficient signal for routing and cross-linking
-- Negative constraint extraction works (4 constraints from 1 failure trace)
+- Negative constraint extraction works (2 constraints from 1 failure trace)
 - Merge detection works (repeated experiences consolidate correctly)
 - Hierarchical traversal reproduces correct procedural sequences
+- ISA versioning and schema migration work: additive DDL migrations run idempotently, legacy data is re-stamped during dream Phase 0 without disrupting the consolidation pipeline
 
 **Also proved** (via BeeAI live demos):
 - Memory reduces agent execution cost by 44-70% in tokens and 50-73% in steps
@@ -677,6 +678,7 @@ The same memory server (REST/WebSocket on port 8420) serves all three layers. A 
 - Real-world robotics integration via the memory server
 - Context jump behavior under real semantic drift
 - Performance at scale (thousands of parent nodes in the FAISS index)
+- ISA version upgrades with structural opcode translations (v1.0 → v2.0 with renamed/split opcodes)
 
 ---
 
@@ -692,7 +694,8 @@ The same memory server (REST/WebSocket on port 8420) serves all three layers. A 
                                 |
                     +-----------v-----------+
                     |    Dream Engine       |
-                    |  SWS -> REM -> Cons.  |
+                    | P0 -> SWS -> REM ->   |
+                    |       Consolidation   |
                     +-----------+-----------+
                                 |
                     +-----------v-----------+
@@ -722,7 +725,14 @@ with cte.session("build authentication system") as logger:
 
 #### 2. Dream Engine (Consolidation)
 
-When the agent "sleeps" (or context saturates), the Dream Engine processes raw traces through three bio-inspired phases:
+When the agent "sleeps" (or context saturates), the Dream Engine processes raw traces through a migration pre-pass plus three bio-inspired phases:
+
+**Phase 0 — ISA Migration (Reconsolidation)**
+- Before processing new traces, scans for legacy data produced by older ISA versions
+- Re-stamps parent nodes and trace entries to the current `ISA_VERSION`
+- Logs migration stats (`nodes_migrated`, `traces_migrated`) to the dream journal
+- Extensible: future versions can apply structural translations (opcode renames, field transforms)
+- Runs every cycle; no-ops when all data is current
 
 **Phase 1 — SWS (Slow-Wave Sleep): Curation**
 - Analyzes failure traces to extract **negative constraints** (what NOT to do)
@@ -862,6 +872,54 @@ Unknown opcodes produce parse warnings but don't stop execution. Valid instructi
 - **Accumulate, don't commit**: VM builds results in memory; the dream engine persists them only after successful completion. A VM error doesn't leave inconsistent database state.
 - **Side effects audit log**: every handler logs what it did for debugging/replay
 
+### ISA Versioning & Schema Migration
+
+A production deployment challenge: **versioning a cognitive ISA mid-deployment across active sessions without invalidating accumulated memory graphs.** When you add, rename, or remove opcodes from the ISA, old data in the graph was produced under a different opcode set. Without version tracking, there's no way to know which ISA version produced a trace, and no mechanism to migrate old data forward.
+
+Evolving Memory solves this with three components:
+
+**1. ISA Version Registry** (`isa/opcodes.py`)
+```python
+from evolving_memory import ISA_VERSION, ISAVersionRegistry
+
+ISA_VERSION  # "1.0" — current version, bumped on opcode changes
+
+registry = get_registry()
+registry.current()          # "1.0"
+registry.all_versions()     # ["1.0"]
+registry.supports("1.0")    # True
+registry.get("1.0")         # {"HALT", "MEM_PTR", "BUILD_PARENT", ...}
+```
+
+Every `Program`, `TraceEntry`, and `ParentNode` carries an `isa_version` field stamped at creation time. This is a **semver string** — distinct from the merge counter `version: int` on `ParentNode`.
+
+**2. Additive Schema Migrations** (`storage/migrations.py`)
+```python
+# Migrations are tracked in a schema_version table and run once, idempotently.
+# Migration 001: Creates the schema_version tracking table
+# Migration 002: ALTER TABLE ADD COLUMN isa_version on parent_nodes, trace_entries;
+#                adds traces_migrated, nodes_migrated to dream_journal
+```
+
+Migrations run automatically when `SQLiteStore` initializes — `ALTER TABLE ADD COLUMN` with `DEFAULT '1.0'` ensures old rows get valid values without data loss. The migration system tolerates duplicate column errors for idempotency.
+
+**3. Cognitive Migration (Dream Phase 0)** (`dream/engine.py`)
+
+Data migration happens asynchronously during dream cycles, not on startup:
+```
+Phase 0: Migrate legacy parent nodes to ISA 1.0  (3 nodes)
+Phase 0: Migrate legacy traces to ISA 1.0         (12 traces)
+SWS: curating 5 traces
+REM: chunking ...
+Consolidation: ...
+```
+
+This mirrors biological **memory reconsolidation** — existing memories are updated when recalled during sleep. The dream journal records migration stats alongside consolidation stats.
+
+**Version-Aware Parsing**: The `InstructionParser` accepts an optional `isa_version` parameter, building a version-specific opcode lookup table. Legacy programs are still parseable — the parser falls back to the full opcode set for unknown versions.
+
+**API Endpoint**: `GET /isa/version` returns `{"current": "1.0", "supported": ["1.0"]}`. The `/stats` endpoint now includes `isa_version`.
+
 ---
 
 ## The Neuroscience Connection
@@ -871,6 +929,7 @@ This architecture directly mirrors how biological memory works:
 | Biology | Evolving Memory | Purpose |
 |---------|----------------|---------|
 | **Waking experience** | Trace Capture | Record what happened |
+| **Memory reconsolidation** | Phase 0 ISA Migration | Update old memories to current schema during sleep |
 | **Slow-Wave Sleep** | SWS Curator | Replay and evaluate experiences |
 | **REM Sleep** | REM Chunker | Compress into abstract patterns |
 | **Synaptic consolidation** | Topological Connector | Wire patterns into long-term graph |
@@ -984,8 +1043,8 @@ src/evolving_memory/
     config.py                # CTEConfig, DreamConfig, RouterConfig, ISAConfig
 
     isa/                     # Agentic Instruction Set Architecture
-        opcodes.py           # 16 opcodes (IntEnum), Instruction, Program
-        parser.py            # Text-assembly parser, 3-mode fallback
+        opcodes.py           # 17 opcodes (IntEnum), ISA_VERSION, ISAVersionRegistry
+        parser.py            # Version-aware text-assembly parser, 3-mode fallback
         serializer.py        # Instruction -> text (debug/logging)
 
     vm/                      # Cognitive Virtual Machine
@@ -1000,11 +1059,11 @@ src/evolving_memory/
         openai_provider.py
         prompts.py           # ISA instruction templates
 
-    dream/                   # 3-phase memory consolidation
+    dream/                   # 4-phase memory consolidation (Phase 0 + 3 bio-inspired)
         curator.py           # Phase 1 SWS: failure analysis, critical path
         chunker.py           # Phase 2 REM: hierarchical node creation
         connector.py         # Phase 3: edges, embeddings, merge detection
-        engine.py            # DreamEngine orchestrator
+        engine.py            # DreamEngine orchestrator (Phase 0: ISA migration)
         domain_adapter.py    # DreamDomainAdapter protocol
         adapters/            # Default + Robotics adapters
 
@@ -1028,7 +1087,8 @@ src/evolving_memory/
         encoder.py           # Gemini Embedding 2 (768-dim, google-genai SDK)
 
     storage/
-        sqlite_store.py      # SQLite graph store (8 tables)
+        sqlite_store.py      # SQLite graph store (9 tables incl. schema_version)
+        migrations.py        # Additive schema migration system (ISA version columns)
         vector_index.py      # FAISS vector index
 
     server/                  # REST/WebSocket API
@@ -1041,18 +1101,19 @@ src/evolving_memory/
 ## Testing
 
 ```bash
-# Run the full test suite (139 tests, no API key needed)
+# Run the full test suite (161 tests, no API key needed)
 PYTHONPATH=src:tests python3.12 -m pytest tests/ -v
 
 # Run the hypothesis validation tests (12 tests, requires GEMINI_API_KEY)
 PYTHONPATH=src:tests GEMINI_API_KEY=<key> python3.12 -m pytest tests/test_real_hypothesis.py -v -s
 
 # Individual modules
-pytest tests/test_isa.py              # 29 tests — parser round-trips, all 16 opcodes
-pytest tests/test_vm.py               # 25 tests — handlers, programs, safety limits
-pytest tests/test_dream_engine.py     # 9 tests — dream cycle with ISA
-pytest tests/test_integration.py      # 3 tests — full capture -> dream -> query
-pytest tests/test_real_hypothesis.py  # 12 tests — real LLM + real embeddings
+pytest tests/test_isa.py                # 29 tests — parser round-trips, all opcodes
+pytest tests/test_vm.py                 # 25 tests — handlers, programs, safety limits
+pytest tests/test_dream_engine.py       # 9 tests — dream cycle with ISA
+pytest tests/test_schema_migration.py   # 22 tests — ISA versioning, migrations, Phase 0
+pytest tests/test_integration.py        # 3 tests — full capture -> dream -> query
+pytest tests/test_real_hypothesis.py    # 12 tests — real LLM + real embeddings
 
 # Run the BeeAI live demos (requires GEMINI_API_KEY + beeai-framework)
 pip install beeai-framework
