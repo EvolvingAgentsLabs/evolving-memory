@@ -56,7 +56,7 @@ Through interaction, agents (biological or artificial) don't just accumulate raw
 - **Patterns** — "every time I do X, Y happens" (statistical regularities)
 - **Behaviors / Habits** — "when facing situation S, do action A" (procedural memory)
 - **Abstract concepts** — language, mathematics, physics (semantic memory)
-- **Negative constraints** — "never do X in situation S" (learned from failure)
+- **Negative constraints** — "never do X in situation S" (learned from failure, classified by `FailureClass`)
 
 At some point, knowledge and memory become parts of the same thing. Humans have biological hardware that is "pretrained" (evolved neural circuits, instincts, sensory processing). LLMs have their pre-trained weights. In both cases, there is a static foundation plus a dynamic layer that accumulates through experience.
 
@@ -875,7 +875,7 @@ MEM_JMP    <node_id>         Context jump — load node into accumulator
 ### Dream / Consolidation (0x20-0x2F)
 
 ```
-EXTRACT_CONSTRAINT <trace_id> "<description>"     Extract a negative constraint
+EXTRACT_CONSTRAINT <trace_id> "<description>" [failure_class]  Extract a negative constraint
 MARK_CRITICAL      <trace_id> <action_index>       Mark action as essential
 MARK_NOISE         <trace_id> <action_index>       Mark action as noise (forget)
 BUILD_PARENT       "<goal>" "<summary>" <confidence>  Create parent node
@@ -917,9 +917,9 @@ HALT
 ### Example: Full Dream Program
 
 ```asm
-# Phase 1: SWS — Extract constraints and critical path
-EXTRACT_CONSTRAINT trace_001 "Do not retry API calls without exponential backoff"
-EXTRACT_CONSTRAINT trace_001 "Do not ignore rate limit headers"
+# Phase 1: SWS — Extract constraints and critical path (with failure classification)
+EXTRACT_CONSTRAINT trace_001 "Do not retry API calls without exponential backoff" timeout
+EXTRACT_CONSTRAINT trace_001 "Do not ignore rate limit headers" logic_error
 MARK_CRITICAL trace_001 0
 MARK_CRITICAL trace_001 2
 MARK_CRITICAL trace_001 4
@@ -1035,7 +1035,7 @@ This architecture directly mirrors how biological memory works:
 | **Hippocampal grid cells** | FAISS Index + Graph Edges | Navigate both spatial and conceptual space |
 | **Procedural memory** | Merged high-confidence nodes | Skills automated through repetition |
 | **Forgetting** | MARK_NOISE + pruning | Remove noise, keep signal |
-| **Negative constraints** | EXTRACT_CONSTRAINT | Learn from failure — "don't touch hot stove" |
+| **Negative constraints** | EXTRACT_CONSTRAINT + FailureClass | Learn from failure — "don't touch hot stove" (classified: physical_slip, mechanical_stall, vlm_hallucination, etc.) |
 | **Epistemological trust** | Fidelity Weights | Real-world > simulated > dreamed experience |
 | **Cross-modal association** | Cross-trace LNK_NODE | "Learning X helped me understand Y" |
 
@@ -1173,7 +1173,7 @@ src/evolving_memory/
         trace_logger.py      # TraceLogger, TraceContext
 
     models/                  # Pydantic data models
-        hierarchy.py         # HierarchyLevel, TraceOutcome, EdgeType, RouterPath
+        hierarchy.py         # HierarchyLevel, TraceOutcome, EdgeType, RouterPath, FailureClass
         trace.py             # TraceEntry, ActionEntry, TraceSession
         graph.py             # ParentNode, ChildNode, ThoughtEdge
         strategy.py          # NegativeConstraint, DreamJournalEntry

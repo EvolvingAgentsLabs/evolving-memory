@@ -56,7 +56,9 @@ class HierarchicalChunker:
                     goal=trace.goal,
                     outcome=trace.outcome.value,
                     steps=steps_text,
-                    constraints=", ".join(curated.negative_constraints) or "none",
+                    constraints=", ".join(
+                        f"{d} [{fc}]" if fc else d for d, fc in curated.negative_constraints
+                    ) or "none",
                 ),
                 system=REM_SYSTEM,
             )
@@ -78,7 +80,7 @@ class HierarchicalChunker:
                 goal=trace.goal,
                 outcome=trace.outcome,
                 trigger_goals=[trace.goal],
-                negative_constraints=curated.negative_constraints,
+                negative_constraints=[d for d, _ in curated.negative_constraints],
                 success_count=1 if trace.outcome == TraceOutcome.SUCCESS else 0,
                 failure_count=1 if trace.outcome == TraceOutcome.FAILURE else 0,
             )
@@ -91,7 +93,7 @@ class HierarchicalChunker:
                 goal=trace.goal,
                 outcome=trace.outcome,
                 trigger_goals=[trace.goal],
-                negative_constraints=curated.negative_constraints,
+                negative_constraints=[d for d, _ in curated.negative_constraints],
                 success_count=1 if trace.outcome == TraceOutcome.SUCCESS else 0,
                 failure_count=1 if trace.outcome == TraceOutcome.FAILURE else 0,
             )

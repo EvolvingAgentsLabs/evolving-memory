@@ -10,6 +10,7 @@ Lines starting with # are comments (optional)."""
 SWS_FAILURE_ANALYSIS = """\
 Analyze this execution trace that ended in {outcome}.
 Extract negative constraints — things the agent should NOT do in similar situations.
+For each constraint, classify the failure type.
 
 Trace ID: {trace_id}
 Goal: {goal}
@@ -17,7 +18,18 @@ Actions:
 {actions}
 
 Available instruction:
-  EXTRACT_CONSTRAINT <trace_id> "<description>"
+  EXTRACT_CONSTRAINT <trace_id> "<description>" <failure_class>
+
+Valid failure_class values:
+  physical_slip       — wheels slipped, momentum carried past target
+  mechanical_stall    — motors commanded but robot didn't move
+  vlm_hallucination   — VLM described objects/paths that don't exist
+  lighting_glare      — bright light / shadow caused misperception
+  command_lost        — bytecode frame dropped or not acknowledged
+  sensor_occlusion    — camera blocked or field of view obstructed
+  timeout             — operation exceeded time limit
+  logic_error         — incorrect reasoning or strategy selection
+  unknown_failure     — cause cannot be determined
 
 Emit one EXTRACT_CONSTRAINT per anti-pattern found. End with HALT."""
 

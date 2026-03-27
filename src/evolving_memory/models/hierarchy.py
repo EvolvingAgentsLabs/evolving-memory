@@ -28,6 +28,19 @@ class TraceSource(StrEnum):
     UNKNOWN_SOURCE = "unknown_source"
 
 
+class FailureClass(StrEnum):
+    """Structured failure categories for dream engine analysis."""
+    PHYSICAL_SLIP = "physical_slip"
+    MECHANICAL_STALL = "mechanical_stall"
+    VLM_HALLUCINATION = "vlm_hallucination"
+    LIGHTING_GLARE = "lighting_glare"
+    COMMAND_LOST = "command_lost"
+    SENSOR_OCCLUSION = "sensor_occlusion"
+    TIMEOUT = "timeout"
+    LOGIC_ERROR = "logic_error"
+    UNKNOWN_FAILURE = "unknown_failure"
+
+
 class EdgeType(StrEnum):
     NEXT_STEP = "next_step"
     PREVIOUS_STEP = "previous_step"

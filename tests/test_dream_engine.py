@@ -30,6 +30,19 @@ class TestTraceCurator:
         assert len(results[0].negative_constraints) > 0
 
     @pytest.mark.asyncio
+    async def test_curate_failure_extracts_failure_class(self, mock_llm):
+        """Failure constraints should carry failure_class from ISA output."""
+        curator = TraceCurator(mock_llm)
+        traces = [make_trace(goal="motor stall test", outcome=TraceOutcome.FAILURE)]
+        results = await curator.curate(traces)
+        assert len(results) == 1
+        assert len(results[0].negative_constraints) > 0
+        # MockLLM emits logic_error as failure_class
+        desc, fc = results[0].negative_constraints[0]
+        assert fc == "logic_error"
+        assert "backoff" in desc.lower()
+
+    @pytest.mark.asyncio
     async def test_curate_skips_short_traces(self, mock_llm):
         curator = TraceCurator(mock_llm)
         traces = [make_trace(n_actions=1)]  # below min_actions=2

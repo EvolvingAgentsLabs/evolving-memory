@@ -28,7 +28,7 @@ class CuratedTrace:
     """Output of Phase 1 — a trace reduced to its critical path + constraints."""
     trace: TraceEntry
     critical_steps: list[CriticalStep] = field(default_factory=list)
-    negative_constraints: list[str] = field(default_factory=list)
+    negative_constraints: list[tuple[str, str]] = field(default_factory=list)  # (description, failure_class)
 
 
 class TraceCurator:
@@ -66,7 +66,7 @@ class TraceCurator:
                 program = self._parser.parse(raw)
                 vm = CognitiveVM()
                 result = vm.execute(program)
-                constraints = [desc for _, desc in result.constraints]
+                constraints = [(desc, fc) for _, desc, fc in result.constraints]
             except Exception:
                 logger.debug("SWS failure analysis failed for %s", trace.trace_id)
 

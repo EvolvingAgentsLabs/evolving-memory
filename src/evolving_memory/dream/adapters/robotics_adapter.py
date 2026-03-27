@@ -25,11 +25,16 @@ class RoboticsAdapter:
             "The robot uses hex-bytecode motor commands and VLM-powered vision.\n"
             "Output ONLY instructions, one per line. No prose, no explanation.\n"
             "Lines starting with # are comments (optional).\n\n"
-            "When extracting constraints from failures, focus on:\n"
-            "- Physical impossibilities (tight turns in narrow corridors)\n"
-            "- Sensor limitations (VLM blind spots, camera occlusion)\n"
-            "- Motor command sequences that cause stalls or collisions\n"
-            "- Spatial navigation errors (wrong turn direction based on bbox position)"
+            "When extracting constraints from failures, classify each with a failure_class:\n"
+            "- physical_slip: wheels slipped, overshooting turns or targets\n"
+            "- mechanical_stall: motors commanded but robot didn't move (stuck on obstacle)\n"
+            "- vlm_hallucination: VLM described objects/paths that don't exist in the scene\n"
+            "- lighting_glare: bright light or shadows caused misperception\n"
+            "- command_lost: bytecode frame was dropped or unacknowledged\n"
+            "- sensor_occlusion: camera blocked or field of view obstructed\n"
+            "- timeout: operation exceeded time limit\n"
+            "- logic_error: incorrect reasoning or spatial navigation errors\n"
+            "- unknown_failure: cause cannot be determined"
         )
 
     def rem_system_prompt(self) -> str:
