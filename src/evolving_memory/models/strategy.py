@@ -21,6 +21,7 @@ class NegativeConstraint(BaseModel):
     constraint_id: str = Field(default_factory=_new_id)
     parent_node_id: str
     description: str
+    failure_class: str = ""
     source_trace_id: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
 

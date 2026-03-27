@@ -114,12 +114,27 @@ def handle_mem_jmp(ctx: VMContext, inst: Instruction) -> Any:
 
 
 def handle_extract_constraint(ctx: VMContext, inst: Instruction) -> Any:
-    """EXTRACT_CONSTRAINT <trace_id> <description>"""
+    """EXTRACT_CONSTRAINT <trace_id> <description> [<failure_class>]
+
+    Backward-compatible: 2-arg form sets failure_class="".
+    3-arg form: last arg is failure_class if it matches a known value.
+    """
     if len(inst.args) < 2:
         return None
     trace_id = inst.args[0]
-    description = " ".join(inst.args[1:])
-    ctx.constraints.append((trace_id, description))
+    # Known failure classes for detection
+    _known_fc = {
+        "physical_slip", "mechanical_stall", "vlm_hallucination",
+        "lighting_glare", "command_lost", "sensor_occlusion",
+        "timeout", "logic_error", "unknown_failure",
+    }
+    if len(inst.args) >= 3 and inst.args[-1] in _known_fc:
+        description = " ".join(inst.args[1:-1])
+        failure_class = inst.args[-1]
+    else:
+        description = " ".join(inst.args[1:])
+        failure_class = ""
+    ctx.constraints.append((trace_id, description, failure_class))
     ctx.side_effects.append(f"EXTRACT_CONSTRAINT: {description[:50]}")
     return description
 

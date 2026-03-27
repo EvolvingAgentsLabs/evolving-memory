@@ -61,7 +61,7 @@ class MockLLMProvider(BaseLLMProvider):
             # Extract trace_id from prompt
             trace_id = self._extract_trace_id(prompt)
             return (
-                f'EXTRACT_CONSTRAINT {trace_id} "Do not retry without backoff"\n'
+                f'EXTRACT_CONSTRAINT {trace_id} "Do not retry without backoff" logic_error\n'
                 f"HALT"
             )
 

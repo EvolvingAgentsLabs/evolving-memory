@@ -31,6 +31,14 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE dream_journal ADD COLUMN nodes_migrated INTEGER NOT NULL DEFAULT 0;
         """,
     ),
+    (
+        3,
+        "Add failure_class columns",
+        """
+        ALTER TABLE trace_entries ADD COLUMN failure_class TEXT NOT NULL DEFAULT '';
+        ALTER TABLE negative_constraints ADD COLUMN failure_class TEXT NOT NULL DEFAULT '';
+        """,
+    ),
 ]
 
 

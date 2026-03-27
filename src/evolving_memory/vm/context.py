@@ -28,7 +28,7 @@ class VMContext:
     # Working memory — populated by dream/consolidation handlers
     critical_indices: list[tuple[str, int]] = field(default_factory=list)  # (trace_id, action_index)
     noise_indices: list[tuple[str, int]] = field(default_factory=list)     # (trace_id, action_index)
-    constraints: list[tuple[str, str]] = field(default_factory=list)       # (trace_id, description)
+    constraints: list[tuple[str, str, str]] = field(default_factory=list)   # (trace_id, description, failure_class)
     built_parents: list[dict[str, Any]] = field(default_factory=list)      # parent node data
     built_children: list[dict[str, Any]] = field(default_factory=list)     # child node data
     built_edges: list[dict[str, str]] = field(default_factory=list)        # edge data
@@ -53,7 +53,7 @@ class VMResult:
     # Collected working memory (copied from context at end)
     critical_indices: list[tuple[str, int]] = field(default_factory=list)
     noise_indices: list[tuple[str, int]] = field(default_factory=list)
-    constraints: list[tuple[str, str]] = field(default_factory=list)
+    constraints: list[tuple[str, str, str]] = field(default_factory=list)
     built_parents: list[dict] = field(default_factory=list)
     built_children: list[dict] = field(default_factory=list)
     built_edges: list[dict[str, str]] = field(default_factory=list)

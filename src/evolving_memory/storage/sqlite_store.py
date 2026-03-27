@@ -351,13 +351,14 @@ class SQLiteStore:
         self._conn.execute(
             """INSERT OR REPLACE INTO trace_entries
                (trace_id, session_id, hierarchy_level, parent_trace_id, goal,
-                outcome, confidence, source, tags, isa_version, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                outcome, confidence, source, tags, isa_version, failure_class, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 trace.trace_id, trace.session_id, int(trace.hierarchy_level),
                 trace.parent_trace_id, trace.goal, trace.outcome.value,
                 trace.confidence, trace.source.value,
                 json.dumps(trace.tags), trace.isa_version,
+                trace.failure_class,
                 trace.created_at.isoformat(),
             ),
         )
@@ -403,6 +404,12 @@ class SQLiteStore:
         traces = []
         for row in rows:
             actions = self._get_actions_for_trace(row["trace_id"])
+            # failure_class column may not exist in older DBs before migration 3
+            fc = ""
+            try:
+                fc = row["failure_class"] or ""
+            except (IndexError, KeyError):
+                pass
             traces.append(TraceEntry(
                 trace_id=row["trace_id"],
                 session_id=row["session_id"],
@@ -414,6 +421,7 @@ class SQLiteStore:
                 source=TraceSource(row["source"]) if row["source"] else TraceSource.UNKNOWN_SOURCE,
                 action_entries=actions,
                 tags=json.loads(row["tags"]),
+                failure_class=fc,
                 isa_version=row["isa_version"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             ))
@@ -459,11 +467,12 @@ class SQLiteStore:
     def save_negative_constraint(self, constraint: NegativeConstraint) -> None:
         self._conn.execute(
             """INSERT OR REPLACE INTO negative_constraints
-               (constraint_id, parent_node_id, description, source_trace_id, created_at)
-               VALUES (?,?,?,?,?)""",
+               (constraint_id, parent_node_id, description, failure_class, source_trace_id, created_at)
+               VALUES (?,?,?,?,?,?)""",
             (
                 constraint.constraint_id, constraint.parent_node_id,
-                constraint.description, constraint.source_trace_id,
+                constraint.description, constraint.failure_class,
+                constraint.source_trace_id,
                 constraint.created_at.isoformat(),
             ),
         )
@@ -474,16 +483,22 @@ class SQLiteStore:
             "SELECT * FROM negative_constraints WHERE parent_node_id = ?",
             (parent_node_id,),
         ).fetchall()
-        return [
-            NegativeConstraint(
+        results = []
+        for r in rows:
+            fc = ""
+            try:
+                fc = r["failure_class"] or ""
+            except (IndexError, KeyError):
+                pass
+            results.append(NegativeConstraint(
                 constraint_id=r["constraint_id"],
                 parent_node_id=r["parent_node_id"],
                 description=r["description"],
+                failure_class=fc,
                 source_trace_id=r["source_trace_id"],
                 created_at=datetime.fromisoformat(r["created_at"]),
-            )
-            for r in rows
-        ]
+            ))
+        return results
 
     # ── ISA migration helpers ──────────────────────────────────────
 

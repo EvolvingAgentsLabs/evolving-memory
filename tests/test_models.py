@@ -3,7 +3,7 @@
 import pytest
 
 from evolving_memory.models.hierarchy import (
-    HierarchyLevel, TraceOutcome, TraceSource, EdgeType, RouterPath,
+    HierarchyLevel, TraceOutcome, TraceSource, FailureClass, EdgeType, RouterPath,
 )
 from evolving_memory.models.trace import ActionEntry, TraceEntry, TraceSession
 from evolving_memory.models.graph import ParentNode, ChildNode, ThoughtEdge
@@ -25,6 +25,18 @@ class TestEnums:
         assert EdgeType.NEXT_STEP == "next_step"
         assert EdgeType.IS_CHILD_OF == "is_child_of"
 
+    def test_failure_class_values(self):
+        assert FailureClass.PHYSICAL_SLIP == "physical_slip"
+        assert FailureClass.MECHANICAL_STALL == "mechanical_stall"
+        assert FailureClass.VLM_HALLUCINATION == "vlm_hallucination"
+        assert FailureClass.COMMAND_LOST == "command_lost"
+        assert FailureClass.UNKNOWN_FAILURE == "unknown_failure"
+        assert len(FailureClass) == 9
+
+    def test_failure_class_is_string(self):
+        assert isinstance(FailureClass.LOGIC_ERROR, str)
+        assert FailureClass.LOGIC_ERROR == "logic_error"
+
     def test_router_paths(self):
         assert RouterPath.ZERO_SHOT == "zero_shot"
         assert RouterPath.MEMORY_TRAVERSAL == "memory_traversal"
@@ -43,6 +55,15 @@ class TestTraceModels:
         assert t.trace_id
         assert t.outcome == TraceOutcome.UNKNOWN
         assert t.action_entries == []
+        assert t.failure_class == ""
+
+    def test_trace_entry_with_failure_class(self):
+        t = TraceEntry(
+            hierarchy_level=HierarchyLevel.TACTICAL,
+            goal="test",
+            failure_class="mechanical_stall",
+        )
+        assert t.failure_class == "mechanical_stall"
 
     def test_trace_session_defaults(self):
         s = TraceSession()
@@ -90,6 +111,15 @@ class TestStrategyModels:
         )
         assert nc.constraint_id
         assert nc.parent_node_id == "p1"
+        assert nc.failure_class == ""
+
+    def test_negative_constraint_with_failure_class(self):
+        nc = NegativeConstraint(
+            parent_node_id="p1",
+            description="motor stalls on incline",
+            failure_class="mechanical_stall",
+        )
+        assert nc.failure_class == "mechanical_stall"
 
     def test_dream_journal_entry(self):
         j = DreamJournalEntry()

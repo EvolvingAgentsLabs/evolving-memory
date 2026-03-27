@@ -60,7 +60,28 @@ class TestDreamHandlers:
         result = handle_extract_constraint(ctx, inst)
         assert result == "Do not retry without backoff"
         assert len(ctx.constraints) == 1
-        assert ctx.constraints[0] == ("trace_001", "Do not retry without backoff")
+        assert ctx.constraints[0] == ("trace_001", "Do not retry without backoff", "")
+
+    def test_extract_constraint_with_failure_class(self):
+        ctx = VMContext()
+        inst = Instruction(
+            Opcode.EXTRACT_CONSTRAINT,
+            ("trace_001", "Do not retry without backoff", "logic_error"),
+        )
+        result = handle_extract_constraint(ctx, inst)
+        assert result == "Do not retry without backoff"
+        assert len(ctx.constraints) == 1
+        assert ctx.constraints[0] == ("trace_001", "Do not retry without backoff", "logic_error")
+
+    def test_extract_constraint_multi_word_desc_with_failure_class(self):
+        ctx = VMContext()
+        inst = Instruction(
+            Opcode.EXTRACT_CONSTRAINT,
+            ("trace_001", "Do", "not", "retry", "without", "backoff", "mechanical_stall"),
+        )
+        result = handle_extract_constraint(ctx, inst)
+        assert result == "Do not retry without backoff"
+        assert ctx.constraints[0][2] == "mechanical_stall"
 
     def test_extract_constraint_too_few_args(self):
         ctx = VMContext()
@@ -209,7 +230,7 @@ class TestCognitiveVM:
         """Execute a realistic SWS program."""
         parser = InstructionParser()
         prog = parser.parse("""
-EXTRACT_CONSTRAINT trace_001 "Do not retry without backoff"
+EXTRACT_CONSTRAINT trace_001 "Do not retry without backoff" logic_error
 EXTRACT_CONSTRAINT trace_001 "Do not ignore rate limit headers"
 MARK_CRITICAL trace_001 0
 MARK_CRITICAL trace_001 2
@@ -220,6 +241,8 @@ HALT
         result = vm.execute(prog)
         assert result.success is True
         assert len(result.constraints) == 2
+        assert result.constraints[0][2] == "logic_error"
+        assert result.constraints[1][2] == ""  # no failure_class
         assert len(result.critical_indices) == 2
         assert len(result.noise_indices) == 1
 
