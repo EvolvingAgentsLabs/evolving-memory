@@ -11,7 +11,7 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0", help="Bind host")
     parser.add_argument("--port", type=int, default=8420, help="Bind port")
     parser.add_argument("--db", default="memory.db", help="SQLite database path")
-    parser.add_argument("--llm", default="mock", choices=["mock", "openai", "anthropic"],
+    parser.add_argument("--llm", default="mock", choices=["mock", "gemini", "openai", "anthropic"],
                         help="LLM provider")
     args = parser.parse_args()
 
@@ -39,6 +39,9 @@ def main() -> None:
                 return "HALT"
 
         llm: BaseLLMProvider = _MockLLM()
+    elif args.llm == "gemini":
+        from ..llm.gemini_provider import GeminiProvider
+        llm = GeminiProvider()
     elif args.llm == "openai":
         from ..llm.openai_provider import OpenAIProvider
         llm = OpenAIProvider()
