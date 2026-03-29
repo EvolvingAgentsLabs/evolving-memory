@@ -83,6 +83,7 @@ def create_router(server: "MemoryServer") -> APIRouter:
         )
         # Wrap in a session and save
         session = TraceSession(root_goal=req.goal)
+        trace.session_id = session.session_id
         session.traces.append(trace)
         session.ended_at = datetime.now(timezone.utc)
         server.store.save_session(session)
