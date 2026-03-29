@@ -1195,6 +1195,74 @@ src/evolving_memory/
     server/                  # REST/WebSocket API
         app.py               # MemoryServer + FastAPI factory
         routes.py            # HTTP/WS endpoints
+        cli.py               # CLI entry point (--llm gemini|openai|anthropic|mock)
+
+scripts/
+    export_training_data.py  # Standalone JSONL export (dedup, balancing, train/val split)
+    prepare_sft_dataset.py   # Post-processing for SFT training data
+```
+
+---
+
+## REST API Server
+
+The memory server exposes a FastAPI REST + WebSocket API for use by external agents (RoClaw, skillos, or any HTTP client).
+
+### Starting the Server
+
+```bash
+# With Gemini LLM backend (recommended for dream consolidation)
+GEMINI_API_KEY=<key> PYTHONPATH=src python3.12 -m evolving_memory.server --llm gemini --port 8420
+
+# With mock LLM (no API key needed, for testing)
+PYTHONPATH=src python3.12 -m evolving_memory.server --llm mock --port 8420
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/stats` | Database statistics (sessions, traces, nodes, ISA version) |
+| `POST` | `/traces` | Ingest a trace entry with actions |
+| `POST` | `/dream/run` | Trigger a dream consolidation cycle |
+| `GET` | `/query?q=...` | Semantic search for relevant memories |
+| `POST` | `/route` | Router query (returns path + entry point) |
+| `GET` | `/nodes/{id}` | Get a parent or child node |
+| `GET` | `/nodes/{id}/children` | Get child nodes for a parent |
+| `GET` | `/nodes/{id}/traverse` | Walk graph edges from a node |
+| `GET` | `/domains` | List all memory domains |
+| `POST` | `/domains/{name}/dream` | Dream cycle for a specific domain |
+| `GET` | `/isa/version` | Current and supported ISA versions |
+| `GET` | `/export/training-data` | Export traces as JSONL for model fine-tuning |
+| `WS` | `/ws/dream` | WebSocket dream cycle with progress events |
+
+### Training Data Export
+
+The `/export/training-data` endpoint exports traces as JSONL in Qwen3-VL chat format — ready for supervised fine-tuning:
+
+```bash
+# Export all successful traces with at least 1 action
+curl http://localhost:8420/export/training-data?outcome=success
+
+# Filter by source (e.g. dream simulation traces only)
+curl http://localhost:8420/export/training-data?outcome=success&source=dream_text&min_actions=3
+```
+
+Each line is a complete chat example:
+```json
+{"messages": [
+  {"role": "system", "content": "You are a robot motor controller..."},
+  {"role": "user", "content": "=== SPATIAL ANALYSIS ===\nPOSE: x=125.0 ..."},
+  {"role": "assistant", "content": "TOOLCALL:{\"name\":\"move_forward\",\"args\":{\"speed_l\":180,\"speed_r\":180}}"}
+]}
+```
+
+For offline export with deduplication and balancing, use the standalone script:
+
+```bash
+python scripts/export_training_data.py --db memory.db --output training_data.jsonl
+python scripts/prepare_sft_dataset.py --input training_data.jsonl  # → train.jsonl + val.jsonl
 ```
 
 ---

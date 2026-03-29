@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from ..isa.opcodes import ISA_VERSION, get_registry
@@ -264,6 +265,105 @@ def create_router(server: "MemoryServer") -> APIRouter:
         data = server.store.get_stats()
         data["isa_version"] = ISA_VERSION
         return data
+
+    # ── Training Data Export ─────────────────────────────────────
+
+    # System prompt matching bytecode_compiler.ts TEXT_SCENE_SYSTEM_PROMPT
+    _TEXT_SCENE_SYSTEM_PROMPT = (
+        'You are a robot motor controller. You see a text description of what '
+        'the robot\'s camera sees and output exactly ONE motor command.\n\n'
+        'ACTIONS:\n'
+        '- move_forward(speed_l, speed_r) — Speed 0-255. Equal = straight.\n'
+        '- move_backward(speed_l, speed_r)\n'
+        '- turn_left(speed_l, speed_r) — speed_l < speed_r\n'
+        '- turn_right(speed_l, speed_r) — speed_l > speed_r\n'
+        '- rotate_cw(degrees, speed) — Clockwise 0-180deg\n'
+        '- rotate_ccw(degrees, speed) — Counter-clockwise 0-180deg\n'
+        '- stop() — ONLY when target < 20cm\n\n'
+        'Output format: TOOLCALL:{"name":"<action>","args":{...}}\n'
+        'Output ONLY the TOOLCALL line. No explanation.'
+    )
+
+    @router.get("/export/training-data")
+    async def export_training_data(
+        outcome: str | None = Query(None, description="Filter by outcome (e.g. 'success')"),
+        source: str | None = Query(None, description="Filter by source (e.g. 'dream_text')"),
+        format: str = Query("jsonl", description="Output format: jsonl"),
+        min_actions: int = Query(1, description="Minimum actions per trace"),
+    ):
+        """Export training data as JSONL in Qwen3-VL chat format.
+
+        Each line: {"messages": [{"role":"system","content":"..."},
+                                 {"role":"user","content":"<sceneText>"},
+                                 {"role":"assistant","content":"TOOLCALL:{...}"}]}
+        """
+        conn = server.store._conn
+        # Build query with optional filters
+        where_clauses = []
+        params: list = []
+        if outcome:
+            where_clauses.append("t.outcome = ?")
+            params.append(outcome)
+        if source:
+            where_clauses.append("t.source = ?")
+            params.append(source)
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+
+        # Get traces with their action counts
+        query = f"""
+            SELECT t.trace_id, t.goal
+            FROM trace_entries t
+            JOIN (
+                SELECT trace_id, COUNT(*) as action_count
+                FROM action_entries
+                GROUP BY trace_id
+            ) ac ON ac.trace_id = t.trace_id
+            {where_sql}
+            AND ac.action_count >= ?
+            ORDER BY t.created_at
+        """
+        params.append(min_actions)
+
+        rows = conn.execute(query, params).fetchall()
+        lines: list[str] = []
+
+        for row in rows:
+            trace_id = row["trace_id"]
+
+            # Fetch actions for this trace
+            actions = conn.execute(
+                "SELECT reasoning, action_payload FROM action_entries "
+                "WHERE trace_id = ? ORDER BY rowid",
+                (trace_id,),
+            ).fetchall()
+
+            for action in actions:
+                reasoning = action["reasoning"] or ""
+                action_payload = action["action_payload"] or ""
+
+                # Skip if no useful data
+                if not reasoning.strip() or not action_payload.strip():
+                    continue
+
+                # Build Qwen3-VL chat format
+                example = {
+                    "messages": [
+                        {"role": "system", "content": _TEXT_SCENE_SYSTEM_PROMPT},
+                        {"role": "user", "content": reasoning},
+                        {"role": "assistant", "content": action_payload},
+                    ]
+                }
+                lines.append(json.dumps(example, ensure_ascii=False))
+
+        content = "\n".join(lines) + "\n" if lines else ""
+        return Response(
+            content=content,
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": "attachment; filename=training_data.jsonl"},
+        )
 
     # ── WebSocket: Dream Progress ────────────────────────────────
 
