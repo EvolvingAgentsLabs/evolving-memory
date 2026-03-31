@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
 
 from .base import BaseLLMProvider
+from .types import LLMJsonResponse, LLMProgramResponse, extract_json_robust
 
 try:
     from openai import AsyncOpenAI
@@ -42,7 +42,7 @@ class GeminiProvider(BaseLLMProvider):
         )
         return response.choices[0].message.content or ""
 
-    async def complete_json(self, prompt: str, system: str = "") -> dict:
+    async def complete_json(self, prompt: str, system: str = "") -> LLMJsonResponse:
         messages: list[dict] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -53,9 +53,10 @@ class GeminiProvider(BaseLLMProvider):
             response_format={"type": "json_object"},
         )
         text = response.choices[0].message.content or "{}"
-        return json.loads(text)
+        data = extract_json_robust(text)
+        return LLMJsonResponse(raw_text=text, data=data)
 
-    async def emit_program(self, prompt: str, system: str = "") -> str:
+    async def emit_program(self, prompt: str, system: str = "") -> LLMProgramResponse:
         messages: list[dict] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -65,7 +66,8 @@ class GeminiProvider(BaseLLMProvider):
             messages=messages,
             temperature=0.0,
         )
-        return response.choices[0].message.content or ""
+        text = response.choices[0].message.content or ""
+        return LLMProgramResponse(raw_text=text)
 
     async def complete_vision(
         self,

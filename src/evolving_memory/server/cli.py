@@ -27,16 +27,17 @@ def main() -> None:
     # Select LLM provider
     if args.llm == "mock":
         from ..llm.base import BaseLLMProvider
+        from ..llm.types import LLMJsonResponse, LLMProgramResponse
 
         class _MockLLM(BaseLLMProvider):
             async def complete(self, prompt: str, system: str = "") -> str:
                 return "HALT"
 
-            async def complete_json(self, prompt: str, system: str = "") -> dict:
-                return {}
+            async def complete_json(self, prompt: str, system: str = "") -> LLMJsonResponse:
+                return LLMJsonResponse(raw_text="{}", data={})
 
-            async def emit_program(self, prompt: str, system: str = "") -> str:
-                return "HALT"
+            async def emit_program(self, prompt: str, system: str = "") -> LLMProgramResponse:
+                return LLMProgramResponse(raw_text="HALT")
 
         llm: BaseLLMProvider = _MockLLM()
     elif args.llm == "gemini":

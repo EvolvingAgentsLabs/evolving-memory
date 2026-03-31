@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from .types import LLMJsonResponse, LLMProgramResponse
+
 
 class BaseLLMProvider(ABC):
     """Interface for LLM providers used by the dream engine."""
@@ -14,16 +16,15 @@ class BaseLLMProvider(ABC):
         ...
 
     @abstractmethod
-    async def complete_json(self, prompt: str, system: str = "") -> dict:
-        """Send a prompt expecting a JSON response, parse and return as dict."""
+    async def complete_json(self, prompt: str, system: str = "") -> LLMJsonResponse:
+        """Send a prompt expecting a JSON response, parse and return as LLMJsonResponse."""
         ...
 
     @abstractmethod
-    async def emit_program(self, prompt: str, system: str = "") -> str:
-        """Send a prompt expecting ISA opcode output, return raw text for parsing.
+    async def emit_program(self, prompt: str, system: str = "") -> LLMProgramResponse:
+        """Send a prompt expecting ISA opcode output, return LLMProgramResponse.
 
-        Unlike complete_json(), this returns the raw text so the ISA parser
-        can process it.  Providers should use temperature=0.0 for deterministic
-        emission.
+        Unlike complete_json(), the raw_text is passed to the ISA parser.
+        Providers should use temperature=0.0 for deterministic emission.
         """
         ...

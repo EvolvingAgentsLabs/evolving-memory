@@ -10,6 +10,7 @@ import pytest
 
 from evolving_memory.config import CTEConfig
 from evolving_memory.llm.base import BaseLLMProvider
+from evolving_memory.llm.types import LLMJsonResponse, LLMProgramResponse
 from evolving_memory.models.graph import ParentNode, ChildNode, ThoughtEdge
 from evolving_memory.models.hierarchy import HierarchyLevel, TraceOutcome, TraceSource, EdgeType
 from evolving_memory.models.trace import ActionEntry, TraceEntry, TraceSession
@@ -26,44 +27,48 @@ class MockLLMProvider(BaseLLMProvider):
     async def complete(self, prompt: str, system: str = "") -> str:
         return "Mock LLM response"
 
-    async def complete_json(self, prompt: str, system: str = "") -> dict:
+    async def complete_json(self, prompt: str, system: str = "") -> LLMJsonResponse:
         # Legacy method — return sensible defaults for any remaining JSON callers
         if "negative_constraints" in prompt.lower() or "failure" in prompt.lower():
-            return {
+            data = {
                 "negative_constraints": [
                     {"description": "Do not retry without backoff", "reasoning": "Causes rate limiting"}
                 ]
             }
+            return LLMJsonResponse(raw_text=str(data), data=data)
         if "critical_path" in prompt.lower() or "critical path" in prompt.lower():
-            return {
+            data = {
                 "critical_path": [
                     {"index": 0, "reasoning": "Analyze requirements", "action": "read docs", "result": "understood", "why_critical": "Foundation step"},
                     {"index": 1, "reasoning": "Implement solution", "action": "write code", "result": "working", "why_critical": "Core implementation"},
                 ]
             }
+            return LLMJsonResponse(raw_text=str(data), data=data)
         if "should_merge" in prompt.lower() or "merge" in prompt.lower():
-            return {
+            data = {
                 "should_merge": False,
                 "reasoning": "Nodes are distinct",
             }
-        return {}
+            return LLMJsonResponse(raw_text=str(data), data=data)
+        return LLMJsonResponse(raw_text="{}", data={})
 
-    async def emit_program(self, prompt: str, system: str = "") -> str:
+    async def emit_program(self, prompt: str, system: str = "") -> LLMProgramResponse:
         """Return ISA opcode programs based on prompt context."""
         prompt_lower = prompt.lower()
 
         # Cross-trace link discovery — LNK_NODE
         if "lnk_node" in prompt_lower and "strategy a" in prompt_lower:
-            return self._emit_cross_link(prompt)
+            return LLMProgramResponse(raw_text=self._emit_cross_link(prompt))
 
         # SWS failure analysis — EXTRACT_CONSTRAINT
         if "extract_constraint" in prompt_lower and ("failure" in prompt_lower or "partial" in prompt_lower):
             # Extract trace_id from prompt
             trace_id = self._extract_trace_id(prompt)
-            return (
+            text = (
                 f'EXTRACT_CONSTRAINT {trace_id} "Do not retry without backoff" logic_error\n'
                 f"HALT"
             )
+            return LLMProgramResponse(raw_text=text)
 
         # SWS critical path — MARK_CRITICAL / MARK_NOISE
         if "mark_critical" in prompt_lower:
@@ -74,7 +79,7 @@ class MockLLMProvider(BaseLLMProvider):
             for i, _ in enumerate(action_lines):
                 lines.append(f"MARK_CRITICAL {trace_id} {i}")
             lines.append("HALT")
-            return "\n".join(lines)
+            return LLMProgramResponse(raw_text="\n".join(lines))
 
         # REM — BUILD_PARENT + BUILD_CHILD
         if "build_parent" in prompt_lower:
@@ -99,10 +104,10 @@ class MockLLMProvider(BaseLLMProvider):
                     f'BUILD_CHILD $LAST_PARENT {i} "{reasoning}" "{action}" "{result}"'
                 )
             lines.append("HALT")
-            return "\n".join(lines)
+            return LLMProgramResponse(raw_text="\n".join(lines))
 
         # Default: just HALT
-        return "HALT"
+        return LLMProgramResponse(raw_text="HALT")
 
     @staticmethod
     def _emit_cross_link(prompt: str) -> str:

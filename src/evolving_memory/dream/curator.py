@@ -11,6 +11,8 @@ from ..llm.prompts import SWS_SYSTEM, SWS_FAILURE_ANALYSIS, SWS_CRITICAL_PATH
 from ..models.hierarchy import TraceOutcome
 from ..models.trace import TraceEntry
 from ..vm.machine import CognitiveVM
+from .domain_adapter import DreamDomainAdapter
+from .prompt_builder import DreamPromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +36,10 @@ class CuratedTrace:
 class TraceCurator:
     """Phase 1 SWS — curates raw traces by extracting failures and critical paths."""
 
-    def __init__(self, llm: BaseLLMProvider) -> None:
+    def __init__(self, llm: BaseLLMProvider, domain_adapter: DreamDomainAdapter | None = None) -> None:
         self._llm = llm
         self._parser = InstructionParser()
+        self._adapter = domain_adapter
 
     async def curate(self, traces: list[TraceEntry], min_actions: int = 2) -> list[CuratedTrace]:
         results = []
@@ -47,23 +50,35 @@ class TraceCurator:
             results.append(curated)
         return results
 
+    def _build_system_prompt(self) -> str:
+        """Build SWS system prompt, enriched with domain context if available."""
+        if self._adapter is None:
+            return SWS_SYSTEM
+        return (
+            DreamPromptBuilder()
+            .append_raw(SWS_SYSTEM)
+            .with_domain_context(self._adapter, "sws")
+            .build()
+        )
+
     async def _curate_single(self, trace: TraceEntry) -> CuratedTrace:
         actions_text = self._format_actions(trace)
         constraints: list[str] = []
+        system_prompt = self._build_system_prompt()
 
         # Extract negative constraints from failures via ISA
         if trace.outcome in (TraceOutcome.FAILURE, TraceOutcome.PARTIAL):
             try:
-                raw = await self._llm.emit_program(
+                resp = await self._llm.emit_program(
                     SWS_FAILURE_ANALYSIS.format(
                         trace_id=trace.trace_id,
                         goal=trace.goal,
                         outcome=trace.outcome.value,
                         actions=actions_text,
                     ),
-                    system=SWS_SYSTEM,
+                    system=system_prompt,
                 )
-                program = self._parser.parse(raw)
+                program = self._parser.parse(resp.raw_text)
                 vm = CognitiveVM()
                 result = vm.execute(program)
                 constraints = [(desc, fc) for _, desc, fc in result.constraints]
@@ -73,16 +88,16 @@ class TraceCurator:
         # Extract critical path via ISA
         critical_steps: list[CriticalStep] = []
         try:
-            raw = await self._llm.emit_program(
+            resp = await self._llm.emit_program(
                 SWS_CRITICAL_PATH.format(
                     trace_id=trace.trace_id,
                     goal=trace.goal,
                     outcome=trace.outcome.value,
                     actions=actions_text,
                 ),
-                system=SWS_SYSTEM,
+                system=system_prompt,
             )
-            program = self._parser.parse(raw)
+            program = self._parser.parse(resp.raw_text)
             vm = CognitiveVM()
             result = vm.execute(program)
 

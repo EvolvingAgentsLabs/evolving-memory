@@ -96,7 +96,7 @@ async def phase1_first_encounter(
                 f"Description: {scene_desc}",
                 system="Return valid JSON only.",
             )
-            objects = objects_resp.get("objects", ["main area", "background", "foreground"])
+            objects = objects_resp.data.get("objects", ["main area", "background", "foreground"])
             ctx.action(
                 reasoning="Extract key objects from scene for deeper analysis",
                 action_payload="complete_json(extract objects)",

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
-
 from .base import BaseLLMProvider
+from .types import LLMJsonResponse, LLMProgramResponse, extract_json_robust
 
 try:
     from openai import AsyncOpenAI
@@ -32,7 +31,7 @@ class OpenAIProvider(BaseLLMProvider):
         )
         return response.choices[0].message.content or ""
 
-    async def complete_json(self, prompt: str, system: str = "") -> dict:
+    async def complete_json(self, prompt: str, system: str = "") -> LLMJsonResponse:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -43,9 +42,10 @@ class OpenAIProvider(BaseLLMProvider):
             response_format={"type": "json_object"},
         )
         text = response.choices[0].message.content or "{}"
-        return json.loads(text)
+        data = extract_json_robust(text)
+        return LLMJsonResponse(raw_text=text, data=data)
 
-    async def emit_program(self, prompt: str, system: str = "") -> str:
+    async def emit_program(self, prompt: str, system: str = "") -> LLMProgramResponse:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -55,4 +55,5 @@ class OpenAIProvider(BaseLLMProvider):
             messages=messages,
             temperature=0.0,
         )
-        return response.choices[0].message.content or ""
+        text = response.choices[0].message.content or ""
+        return LLMProgramResponse(raw_text=text)

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
-import re
-
 from .base import BaseLLMProvider
+from .types import LLMJsonResponse, LLMProgramResponse, extract_json_robust
 
 try:
     from anthropic import AsyncAnthropic
@@ -33,15 +31,12 @@ class AnthropicProvider(BaseLLMProvider):
         response = await self._client.messages.create(**kwargs)
         return response.content[0].text
 
-    async def complete_json(self, prompt: str, system: str = "") -> dict:
+    async def complete_json(self, prompt: str, system: str = "") -> LLMJsonResponse:
         text = await self.complete(prompt, system)
-        # Extract JSON from markdown code blocks if present
-        match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-        if match:
-            text = match.group(1).strip()
-        return json.loads(text)
+        data = extract_json_robust(text)
+        return LLMJsonResponse(raw_text=text, data=data)
 
-    async def emit_program(self, prompt: str, system: str = "") -> str:
+    async def emit_program(self, prompt: str, system: str = "") -> LLMProgramResponse:
         kwargs: dict = {
             "model": self._model,
             "max_tokens": 4096,
@@ -51,4 +46,4 @@ class AnthropicProvider(BaseLLMProvider):
         if system:
             kwargs["system"] = system
         response = await self._client.messages.create(**kwargs)
-        return response.content[0].text
+        return LLMProgramResponse(raw_text=response.content[0].text)

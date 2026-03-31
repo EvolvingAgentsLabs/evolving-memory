@@ -4,7 +4,7 @@
 
 A bio-inspired memory system that captures agent execution traces, consolidates them through dream cycles (SWS/REM/Consolidation), and enables intelligent memory retrieval via topological graph traversal. Built on an **Agentic ISA** (Instruction Set Architecture) where LLMs emit structured opcodes instead of JSON.
 
-[![Tests](https://img.shields.io/badge/tests-163%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-168%20passed-brightgreen)]()
 [![Hypothesis](https://img.shields.io/badge/hypothesis-12%2F12%20validated-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-orange)]()
@@ -1154,6 +1154,7 @@ src/evolving_memory/
 
     llm/                     # LLM provider abstraction
         base.py              # BaseLLMProvider (complete, complete_json, emit_program)
+        types.py             # Typed responses (LLMResponse, LLMJsonResponse, LLMProgramResponse)
         gemini_provider.py   # Gemini via OpenAI-compatible endpoint
         anthropic_provider.py
         openai_provider.py
@@ -1164,6 +1165,7 @@ src/evolving_memory/
         chunker.py           # Phase 2 REM: hierarchical node creation
         connector.py         # Phase 3: edges, embeddings, merge detection
         engine.py            # DreamEngine orchestrator (Phase 0: ISA migration + transforms)
+        prompt_builder.py    # Composable prompt assembly for dream phases
         migration.py         # MigrationTransform protocol for LLM-powered schema evolution
         domain_adapter.py    # DreamDomainAdapter protocol
         adapters/            # Default + Robotics adapters
@@ -1335,15 +1337,17 @@ Implement `BaseLLMProvider` to use any LLM:
 
 ```python
 from evolving_memory import BaseLLMProvider
+from evolving_memory.llm.types import LLMJsonResponse, LLMProgramResponse
 
 class MyProvider(BaseLLMProvider):
     async def complete(self, prompt: str, system: str = "") -> str:
         ...
 
-    async def complete_json(self, prompt: str, system: str = "") -> dict:
+    async def complete_json(self, prompt: str, system: str = "") -> LLMJsonResponse:
+        """Return parsed JSON with robust extraction fallbacks."""
         ...
 
-    async def emit_program(self, prompt: str, system: str = "") -> str:
+    async def emit_program(self, prompt: str, system: str = "") -> LLMProgramResponse:
         """Return raw text for ISA parsing. Use temperature=0.0."""
         ...
 ```
