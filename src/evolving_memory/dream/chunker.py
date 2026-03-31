@@ -12,6 +12,8 @@ from ..models.graph import ParentNode, ChildNode
 from ..models.hierarchy import HierarchyLevel, TraceOutcome, TraceSource
 from ..vm.machine import CognitiveVM
 from .curator import CuratedTrace
+from .domain_adapter import DreamDomainAdapter
+from .prompt_builder import DreamPromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +34,10 @@ class HierarchicalChunker:
     single LLM call (1 call instead of 1+N).
     """
 
-    def __init__(self, llm: BaseLLMProvider) -> None:
+    def __init__(self, llm: BaseLLMProvider, domain_adapter: DreamDomainAdapter | None = None) -> None:
         self._llm = llm
         self._parser = InstructionParser()
+        self._adapter = domain_adapter
 
     async def chunk(self, curated_traces: list[CuratedTrace]) -> list[ChunkedResult]:
         results = []
@@ -51,7 +54,16 @@ class HierarchicalChunker:
 
         # Single LLM call: emit BUILD_PARENT + BUILD_CHILD opcodes
         try:
-            raw = await self._llm.emit_program(
+            system_prompt = REM_SYSTEM
+            if self._adapter:
+                system_prompt = (
+                    DreamPromptBuilder()
+                    .append_raw(REM_SYSTEM)
+                    .with_domain_context(self._adapter, "rem")
+                    .build()
+                )
+
+            resp = await self._llm.emit_program(
                 REM_BUILD_NODES.format(
                     goal=trace.goal,
                     outcome=trace.outcome.value,
@@ -60,9 +72,9 @@ class HierarchicalChunker:
                         f"{d} [{fc}]" if fc else d for d, fc in curated.negative_constraints
                     ) or "none",
                 ),
-                system=REM_SYSTEM,
+                system=system_prompt,
             )
-            program = self._parser.parse(raw)
+            program = self._parser.parse(resp.raw_text)
             vm = CognitiveVM()
             result = vm.execute(program)
         except Exception:

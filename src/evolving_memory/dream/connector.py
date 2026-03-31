@@ -17,6 +17,8 @@ from ..storage.sqlite_store import SQLiteStore
 from ..storage.vector_index import VectorIndex
 from ..vm.machine import CognitiveVM
 from .chunker import ChunkedResult
+from .domain_adapter import DreamDomainAdapter
+from .prompt_builder import DreamPromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class TopologicalConnector:
         encoder: EmbeddingEncoder,
         config: DreamConfig,
         llm: BaseLLMProvider | None = None,
+        domain_adapter: DreamDomainAdapter | None = None,
     ) -> None:
         self._store = store
         self._index = index
@@ -38,6 +41,7 @@ class TopologicalConnector:
         self._config = config
         self._llm = llm
         self._parser = InstructionParser()
+        self._adapter = domain_adapter
 
     async def consolidate(self, chunks: list[ChunkedResult]) -> dict:
         """Consolidate chunked results into the thought graph. Returns stats."""
@@ -194,8 +198,18 @@ class TopologicalConnector:
                     f"[{c.step_index}] {c.action}" for c in children_b
                 )
 
+                # Build system prompt with optional domain context
+                system_prompt = CONSOLIDATION_LINK_SYSTEM
+                if self._adapter:
+                    system_prompt = (
+                        DreamPromptBuilder()
+                        .append_raw(CONSOLIDATION_LINK_SYSTEM)
+                        .with_domain_context(self._adapter, "consolidation")
+                        .build()
+                    )
+
                 # LLM decides the actual relationship
-                raw = await self._llm.emit_program(
+                resp = await self._llm.emit_program(
                     CONSOLIDATION_LINK_DISCOVERY.format(
                         id_a=node_id,
                         goal_a=node.goal,
@@ -206,10 +220,10 @@ class TopologicalConnector:
                         summary_b=candidate.summary,
                         steps_b=steps_b or "(none)",
                     ),
-                    system=CONSOLIDATION_LINK_SYSTEM,
+                    system=system_prompt,
                 )
 
-                program = self._parser.parse(raw)
+                program = self._parser.parse(resp.raw_text)
                 vm = CognitiveVM()
                 result = vm.execute(program)
 

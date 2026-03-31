@@ -40,9 +40,9 @@ class DreamEngine:
         self._encoder = encoder
         self._config = config
         self._adapter = adapter or DefaultAdapter()
-        self._curator = TraceCurator(llm)
-        self._chunker = HierarchicalChunker(llm)
-        self._connector = TopologicalConnector(store, index, encoder, config.dream, llm)
+        self._curator = TraceCurator(llm, domain_adapter=self._adapter)
+        self._chunker = HierarchicalChunker(llm, domain_adapter=self._adapter)
+        self._connector = TopologicalConnector(store, index, encoder, config.dream, llm, domain_adapter=self._adapter)
         self._migration_transforms: list[MigrationTransform] = []
 
     def register_migration(self, transform: MigrationTransform) -> None:
