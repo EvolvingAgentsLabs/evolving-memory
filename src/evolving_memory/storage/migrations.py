@@ -39,6 +39,14 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE negative_constraints ADD COLUMN failure_class TEXT NOT NULL DEFAULT '';
         """,
     ),
+    (
+        4,
+        "Add compaction columns to dream_journal",
+        """
+        ALTER TABLE dream_journal ADD COLUMN cross_edges_created INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE dream_journal ADD COLUMN nodes_compacted INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 ]
 
 

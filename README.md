@@ -4,9 +4,9 @@
 
 A bio-inspired memory system that captures agent execution traces, consolidates them through dream cycles (SWS/REM/Consolidation), and enables intelligent memory retrieval via topological graph traversal. Built on an **Agentic ISA** (Instruction Set Architecture) where LLMs emit structured opcodes instead of JSON.
 
-[![Tests](https://img.shields.io/badge/tests-168%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-170%20passed-brightgreen)]()
 [![Hypothesis](https://img.shields.io/badge/hypothesis-12%2F12%20validated-blue)]()
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-orange)]()
 
 ---
@@ -70,10 +70,11 @@ The Evolving Memory system implements this biological blueprint:
 
 1. **Trace Capture (Waking)** — During active work, record complete chain-of-thought sequences: every reasoning step, every action, every result, organized hierarchically by goal level
 
-2. **Dream Engine (Sleep)** — Between work sessions, consolidate raw traces through three phases:
+2. **Dream Engine (Sleep)** — Between work sessions, consolidate raw traces through four phases:
    - **SWS (Slow-Wave Sleep)** — Curate: replay traces, identify the critical path (the minimal essential sequence), extract negative constraints from failures, prune noise (retries, dead ends, redundant steps). This is **intelligent forgetting** — the system learns what matters and what doesn't.
    - **REM** — Abstract: compress curated traces into hierarchical memory nodes (a parent strategy with child steps). This creates chunked, context-window-sized units of knowledge that the LLM can consume.
    - **Consolidation** — Connect: generate semantic embeddings, detect merge candidates (is this the same knowledge I already have?), wire causal and temporal edges between nodes, discover cross-domain links.
+   - **Compaction** — Compress: LLM-powered summarization of verbose, low-access memory nodes. Identifies candidates with long summaries and low access counts, then uses the LLM to produce tighter summaries while preserving key facts, decisions, and outcomes. Gated by `enable_compaction` config flag.
 
 3. **Cognitive Router (Retrieval)** — When the agent faces a new task:
    - **Semantic similarity is just the index** — embeddings find candidate entry points (pointers into the knowledge graph), like a library catalog pointing to the right shelf
@@ -280,31 +281,14 @@ Both demos use **Gemini 2.5 Flash Lite** as the waking agent (a small, cheap LLM
 
 **The test:**
 
-```
-┌─────────────────────────────────────────────────────┐
-│  ATTEMPT 1: Baseline (No Memory)                    │
-│  Agent runs with empty CTE — no prior experience    │
-│  → Tries SELECT revenue... → SQL Error              │
-│  → Tries SELECT fecha... → SQL Error                │
-│  → Discovers schema, queries, calculates            │
-│  → Succeeds after 6 steps, 2 errors                 │
-│  → Trace captured with all failures                 │
-├─────────────────────────────────────────────────────┤
-│  DREAM CYCLE                                        │
-│  → SWS: Replays trace, identifies critical path     │
-│  → REM: Builds strategy node with correct schema    │
-│  → Consolidation: Embeds, indexes into FAISS        │
-│  → 1 node created, 10 edges wired                   │
-├─────────────────────────────────────────────────────┤
-│  ATTEMPT 2: With Memory                             │
-│  → CTE router returns MEMORY_TRAVERSAL              │
-│  → System prompt enhanced with strategy + steps     │
-│  → Agent uses correct column name immediately       │
-│  → Succeeds in 3 steps, 0 errors                   │
-├─────────────────────────────────────────────────────┤
-│  RESULTS TABLE                                      │
-│  Compare: steps, tokens, latency, errors            │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A1["**ATTEMPT 1: Baseline (No Memory)**\nAgent runs with empty CTE\nTries SELECT revenue → SQL Error\nTries SELECT fecha → SQL Error\nDiscovers schema, queries, calculates\nSucceeds after 6 steps, 2 errors\nTrace captured with all failures"]
+    DC["**DREAM CYCLE**\nSWS: Replays trace, identifies critical path\nREM: Builds strategy node with correct schema\nConsolidation: Embeds, indexes into FAISS\n1 node created, 10 edges wired"]
+    A2["**ATTEMPT 2: With Memory**\nCTE router returns MEMORY_TRAVERSAL\nSystem prompt enhanced with strategy + steps\nAgent uses correct column name immediately\nSucceeds in 3 steps, 0 errors"]
+    R["**RESULTS**\nCompare: steps, tokens, latency, errors"]
+
+    A1 --> DC --> A2 --> R
 ```
 
 **Actual results (from live run):**
@@ -408,35 +392,14 @@ The demo creates a temporary SQLite database, runs both attempts, performs the d
 
 **The test:**
 
-```
-┌─────────────────────────────────────────────────────┐
-│  DAY 1: Small LLM attempts reconciliation (FAILS)    │
-│  → Fetches /v1/charges → 5 charges, has_more: true   │
-│  → Tries ?page=2 → 400: "Unknown parameter 'page'"  │
-│  → Tries ?offset=5, ?page_token= → all rejected      │
-│  → Exhausts retries, reports only 5 of 14 charges    │
-│  → BUSINESS IMPACT: Incomplete reconciliation         │
-│  → Trace captured with financial discrepancies       │
-├─────────────────────────────────────────────────────┤
-│  NIGHT: Large LLM dreams                             │
-│  → CTE.dream() uses Gemini 2.5 Flash (larger model) │
-│  → Analyzes the failure trace deeply                 │
-│  → Discovers: cursor is in Stripe-Cursor header      │
-│  → Discovers: use ?starting_after=<cursor>           │
-│  → Builds strategy with correct pagination pattern   │
-├─────────────────────────────────────────────────────┤
-│  DAY 2: Small LLM with distilled knowledge           │
-│  → CTE router returns MEMORY_TRAVERSAL              │
-│  → Injects: "Use Stripe-Cursor header value with     │
-│    ?starting_after= parameter"                       │
-│  → Small LLM follows the procedure                  │
-│  → Fetches all 3 pages, 14 charges                  │
-│  → Correct gross total, disputes flagged             │
-├─────────────────────────────────────────────────────┤
-│  RESULTS                                             │
-│  "Small model + Evolving Memory = compliance-ready   │
-│   financial reconciliation at small model cost"      │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    D1["**DAY 1: Small LLM attempts reconciliation (FAILS)**\nFetches /v1/charges → 5 charges, has_more: true\nTries ?page=2 → 400 Unknown parameter\nTries ?offset=5, ?page_token= → all rejected\nExhausts retries, reports only 5 of 14 charges\nBUSINESS IMPACT: Incomplete reconciliation"]
+    N["**NIGHT: Large LLM dreams**\nCTE.dream() uses Gemini 2.5 Flash\nAnalyzes failure trace deeply\nDiscovers: cursor is in Stripe-Cursor header\nDiscovers: use ?starting_after=cursor\nBuilds strategy with correct pagination pattern"]
+    D2["**DAY 2: Small LLM with distilled knowledge**\nCTE router returns MEMORY_TRAVERSAL\nInjects Stripe-Cursor header + starting_after\nSmall LLM follows the procedure\nFetches all 3 pages, 14 charges\nCorrect gross total, disputes flagged"]
+    R["**RESULTS**\nSmall model + Evolving Memory =\ncompliance-ready financial reconciliation\nat small model cost"]
+
+    D1 --> N --> D2 --> R
 ```
 
 **Actual results (from live run):**
@@ -626,24 +589,13 @@ This architecture is:
 
 Evolving Memory is the **Hippocampus** in a three-part cognitive architecture:
 
-```
-    ┌──────────────────────────────────────┐
-    │        llmos (Prefrontal Cortex)      │
-    │   Agent Kernel · Applets · UI · LLM  │
-    │   Decides what to do, plans, reasons │
-    └──────────────┬───────────────────────┘
-                   │
-    ┌──────────────▼───────────────────────┐
-    │    Evolving Memory (Hippocampus)      │
-    │   CTE · Dream Engine · FAISS · ISA   │
-    │   Remembers, consolidates, retrieves │
-    └──────────────┬───────────────────────┘
-                   │
-    ┌──────────────▼───────────────────────┐
-    │        RoClaw (Cerebellum)            │
-    │   Robot · Bytecode · Motor Control   │
-    │   Executes physical actions          │
-    └──────────────────────────────────────┘
+```mermaid
+flowchart TD
+    S["**skillos (Prefrontal Cortex)**\nAgents · Tools · Planning · LLM\nDecides what to do, plans, reasons"]
+    E["**Evolving Memory (Hippocampus)**\nCTE · Dream Engine · FAISS · ISA\nRemembers, consolidates, retrieves"]
+    R["**RoClaw (Cerebellum)**\nRobot · Bytecode · Motor Control\nExecutes physical actions"]
+
+    S --> E --> R
 ```
 
 The same memory server (REST/WebSocket on port 8420) serves all three layers. A robot's navigation experience and a software agent's coding experience consolidate through the exact same dream pipeline — different `TraceSource` fidelity weights, same ISA, same graph structure.
@@ -765,29 +717,15 @@ Phase 0: migrated 4 legacy traces to ISA 1.0
 
 ## Architecture
 
-```
-                    +-----------------------+
-                    |   Waking State        |
-                    |   (Trace Capture)     |
-                    +-----------+-----------+
-                                |
-                         Raw Trace Log
-                                |
-                    +-----------v-----------+
-                    |    Dream Engine       |
-                    | P0 -> SWS -> REM ->   |
-                    |       Consolidation   |
-                    +-----------+-----------+
-                                |
-                    +-----------v-----------+
-                    |  Topological Memory   |
-                    |  Graph + FAISS Index  |
-                    +-----------+-----------+
-                                |
-                    +-----------v-----------+
-                    |  Cognitive Router     |
-                    |  (Tripartite Path)    |
-                    +-----------------------+
+```mermaid
+flowchart TD
+    W["Waking State\n(Trace Capture)"]
+    T["Raw Trace Log"]
+    D["Dream Engine\nP0 → SWS → REM →\nConsolidation → Compaction"]
+    M["Topological Memory\nGraph + FAISS Index"]
+    R["Cognitive Router\n(Tripartite Path)"]
+
+    W --> T --> D --> M --> R
 ```
 
 ### The Three Subsystems
@@ -806,7 +744,7 @@ with cte.session("build authentication system") as logger:
 
 #### 2. Dream Engine (Consolidation)
 
-When the agent "sleeps" (or context saturates), the Dream Engine processes raw traces through a migration pre-pass plus three bio-inspired phases:
+When the agent "sleeps" (or context saturates), the Dream Engine processes raw traces through a migration pre-pass plus four phases:
 
 **Phase 0 — ISA Migration (Reconsolidation)**
 - Before processing new traces, scans for legacy data produced by older ISA versions
@@ -834,6 +772,13 @@ When the agent "sleeps" (or context saturates), the Dream Engine processes raw t
 - Creates **edges**: `IS_CHILD_OF` (hierarchical), `NEXT_STEP` / `PREVIOUS_STEP` (temporal/causal)
 - Discovers **cross-trace links** via LLM analysis — emits `LNK_NODE` opcodes to create `causal` or `context_jump` edges between related strategies
 - Applies **fidelity weights** — real-world experiences (1.0) are trusted more than simulated (0.5) or dreamed (0.3) ones
+
+**Phase 4 — Compaction: LLM-Powered Summarization** (optional, gated by `enable_compaction`)
+- Scans parent nodes for compaction candidates: `access_count < min_access AND len(summary) > max_summary_len AND version < 5`
+- For each candidate, uses the LLM to rewrite the verbose summary into a concise version that preserves key facts, decisions, and outcomes
+- Increments `node.version` after compaction; nodes that have been compacted 5+ times are considered stable
+- Tracks `nodes_compacted` in the dream journal
+- Uses `DreamPromptBuilder` for domain adapter integration
 
 #### 3. Cognitive Router (Tripartite Decision)
 
@@ -1032,6 +977,7 @@ This architecture directly mirrors how biological memory works:
 | **Slow-Wave Sleep** | SWS Curator | Replay and evaluate experiences |
 | **REM Sleep** | REM Chunker | Compress into abstract patterns |
 | **Synaptic consolidation** | Topological Connector | Wire patterns into long-term graph |
+| **Memory compaction** | MemoryCompactor | LLM-powered summarization of verbose memories |
 | **Hippocampal grid cells** | FAISS Index + Graph Edges | Navigate both spatial and conceptual space |
 | **Procedural memory** | Merged high-confidence nodes | Skills automated through repetition |
 | **Forgetting** | MARK_NOISE + pruning | Remove noise, keep signal |
@@ -1160,10 +1106,11 @@ src/evolving_memory/
         openai_provider.py
         prompts.py           # ISA instruction templates
 
-    dream/                   # 4-phase memory consolidation (Phase 0 + 3 bio-inspired)
+    dream/                   # 5-phase memory consolidation (Phase 0 + 4 processing phases)
         curator.py           # Phase 1 SWS: failure analysis, critical path
         chunker.py           # Phase 2 REM: hierarchical node creation
         connector.py         # Phase 3: edges, embeddings, merge detection
+        compactor.py         # Phase 4: LLM-powered memory node summarization
         engine.py            # DreamEngine orchestrator (Phase 0: ISA migration + transforms)
         prompt_builder.py    # Composable prompt assembly for dream phases
         migration.py         # MigrationTransform protocol for LLM-powered schema evolution
@@ -1272,7 +1219,7 @@ python scripts/prepare_sft_dataset.py --input training_data.jsonl  # → train.j
 ## Testing
 
 ```bash
-# Run the full test suite (163 tests, no API key needed)
+# Run the full test suite (170 tests, no API key needed)
 PYTHONPATH=src:tests python3.12 -m pytest tests/ -v
 
 # Run the hypothesis validation tests (12 tests, requires GEMINI_API_KEY)
@@ -1313,6 +1260,9 @@ config = CTEConfig(
         merge_similarity_threshold=0.85,  # When to merge similar nodes
         max_traces_per_cycle=50,
         min_actions_for_trace=2,
+        enable_compaction=False,           # Phase 4: LLM-powered node summarization
+        compaction_min_access=3,           # Only compact nodes accessed < N times
+        compaction_max_summary_len=200,    # Target max summary length
     ),
     router=RouterConfig(
         similarity_weight=0.5,
@@ -1359,7 +1309,7 @@ class MyProvider(BaseLLMProvider):
 Evolving Memory is one component of a unified theory of **Agentic Control**:
 
 - **[RoClaw](https://github.com/EvolvingAgentsLabs/RoClaw)** — Robotics bytecode ISA (`AA 01 64 64 CB FF`) for hardware motor control
-- **[llmunix / DreamOS](https://github.com/EvolvingAgentsLabs/llmunix-dreamos)** — Operating system layer for LLM agent orchestration
+- **[skillos](https://github.com/EvolvingAgentsLabs/skillos)** — Pure Markdown OS for LLM agent orchestration (Prefrontal Cortex)
 - **Evolving Memory (CTE)** — Cognitive memory with ISA for software agents
 
 All three share the same principle: **LLM as CPU, structured instructions as the interface, Python/firmware as the VM/executor.** The ISA is text-assembly instead of hex bytecode because Python has no hardware memory constraints — but the architecture is identical.

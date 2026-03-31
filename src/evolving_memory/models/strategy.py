@@ -47,6 +47,7 @@ class DreamJournalEntry(BaseModel):
     nodes_merged: int = 0
     edges_created: int = 0
     cross_edges_created: int = 0
+    nodes_compacted: int = 0
     constraints_extracted: int = 0
     traces_migrated: int = 0
     nodes_migrated: int = 0

@@ -135,6 +135,8 @@ class SQLiteStore:
                 nodes_created INTEGER NOT NULL DEFAULT 0,
                 nodes_merged INTEGER NOT NULL DEFAULT 0,
                 edges_created INTEGER NOT NULL DEFAULT 0,
+                cross_edges_created INTEGER NOT NULL DEFAULT 0,
+                nodes_compacted INTEGER NOT NULL DEFAULT 0,
                 constraints_extracted INTEGER NOT NULL DEFAULT 0,
                 traces_migrated INTEGER NOT NULL DEFAULT 0,
                 nodes_migrated INTEGER NOT NULL DEFAULT 0,
@@ -448,14 +450,17 @@ class SQLiteStore:
         self._conn.execute(
             """INSERT OR REPLACE INTO dream_journal
                (journal_id, started_at, ended_at, traces_processed,
-                nodes_created, nodes_merged, edges_created, constraints_extracted,
+                nodes_created, nodes_merged, edges_created,
+                cross_edges_created, nodes_compacted,
+                constraints_extracted,
                 traces_migrated, nodes_migrated, phase_log)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 entry.journal_id, entry.started_at.isoformat(),
                 entry.ended_at.isoformat() if entry.ended_at else None,
                 entry.traces_processed, entry.nodes_created, entry.nodes_merged,
-                entry.edges_created, entry.constraints_extracted,
+                entry.edges_created, entry.cross_edges_created,
+                entry.nodes_compacted, entry.constraints_extracted,
                 entry.traces_migrated, entry.nodes_migrated,
                 json.dumps(entry.phase_log),
             ),
