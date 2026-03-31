@@ -281,31 +281,14 @@ Both demos use **Gemini 2.5 Flash Lite** as the waking agent (a small, cheap LLM
 
 **The test:**
 
-```
-┌─────────────────────────────────────────────────────┐
-│  ATTEMPT 1: Baseline (No Memory)                    │
-│  Agent runs with empty CTE — no prior experience    │
-│  → Tries SELECT revenue... → SQL Error              │
-│  → Tries SELECT fecha... → SQL Error                │
-│  → Discovers schema, queries, calculates            │
-│  → Succeeds after 6 steps, 2 errors                 │
-│  → Trace captured with all failures                 │
-├─────────────────────────────────────────────────────┤
-│  DREAM CYCLE                                        │
-│  → SWS: Replays trace, identifies critical path     │
-│  → REM: Builds strategy node with correct schema    │
-│  → Consolidation: Embeds, indexes into FAISS        │
-│  → 1 node created, 10 edges wired                   │
-├─────────────────────────────────────────────────────┤
-│  ATTEMPT 2: With Memory                             │
-│  → CTE router returns MEMORY_TRAVERSAL              │
-│  → System prompt enhanced with strategy + steps     │
-│  → Agent uses correct column name immediately       │
-│  → Succeeds in 3 steps, 0 errors                   │
-├─────────────────────────────────────────────────────┤
-│  RESULTS TABLE                                      │
-│  Compare: steps, tokens, latency, errors            │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A1["**ATTEMPT 1: Baseline (No Memory)**\nAgent runs with empty CTE\nTries SELECT revenue → SQL Error\nTries SELECT fecha → SQL Error\nDiscovers schema, queries, calculates\nSucceeds after 6 steps, 2 errors\nTrace captured with all failures"]
+    DC["**DREAM CYCLE**\nSWS: Replays trace, identifies critical path\nREM: Builds strategy node with correct schema\nConsolidation: Embeds, indexes into FAISS\n1 node created, 10 edges wired"]
+    A2["**ATTEMPT 2: With Memory**\nCTE router returns MEMORY_TRAVERSAL\nSystem prompt enhanced with strategy + steps\nAgent uses correct column name immediately\nSucceeds in 3 steps, 0 errors"]
+    R["**RESULTS**\nCompare: steps, tokens, latency, errors"]
+
+    A1 --> DC --> A2 --> R
 ```
 
 **Actual results (from live run):**
@@ -409,35 +392,14 @@ The demo creates a temporary SQLite database, runs both attempts, performs the d
 
 **The test:**
 
-```
-┌─────────────────────────────────────────────────────┐
-│  DAY 1: Small LLM attempts reconciliation (FAILS)    │
-│  → Fetches /v1/charges → 5 charges, has_more: true   │
-│  → Tries ?page=2 → 400: "Unknown parameter 'page'"  │
-│  → Tries ?offset=5, ?page_token= → all rejected      │
-│  → Exhausts retries, reports only 5 of 14 charges    │
-│  → BUSINESS IMPACT: Incomplete reconciliation         │
-│  → Trace captured with financial discrepancies       │
-├─────────────────────────────────────────────────────┤
-│  NIGHT: Large LLM dreams                             │
-│  → CTE.dream() uses Gemini 2.5 Flash (larger model) │
-│  → Analyzes the failure trace deeply                 │
-│  → Discovers: cursor is in Stripe-Cursor header      │
-│  → Discovers: use ?starting_after=<cursor>           │
-│  → Builds strategy with correct pagination pattern   │
-├─────────────────────────────────────────────────────┤
-│  DAY 2: Small LLM with distilled knowledge           │
-│  → CTE router returns MEMORY_TRAVERSAL              │
-│  → Injects: "Use Stripe-Cursor header value with     │
-│    ?starting_after= parameter"                       │
-│  → Small LLM follows the procedure                  │
-│  → Fetches all 3 pages, 14 charges                  │
-│  → Correct gross total, disputes flagged             │
-├─────────────────────────────────────────────────────┤
-│  RESULTS                                             │
-│  "Small model + Evolving Memory = compliance-ready   │
-│   financial reconciliation at small model cost"      │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    D1["**DAY 1: Small LLM attempts reconciliation (FAILS)**\nFetches /v1/charges → 5 charges, has_more: true\nTries ?page=2 → 400 Unknown parameter\nTries ?offset=5, ?page_token= → all rejected\nExhausts retries, reports only 5 of 14 charges\nBUSINESS IMPACT: Incomplete reconciliation"]
+    N["**NIGHT: Large LLM dreams**\nCTE.dream() uses Gemini 2.5 Flash\nAnalyzes failure trace deeply\nDiscovers: cursor is in Stripe-Cursor header\nDiscovers: use ?starting_after=cursor\nBuilds strategy with correct pagination pattern"]
+    D2["**DAY 2: Small LLM with distilled knowledge**\nCTE router returns MEMORY_TRAVERSAL\nInjects Stripe-Cursor header + starting_after\nSmall LLM follows the procedure\nFetches all 3 pages, 14 charges\nCorrect gross total, disputes flagged"]
+    R["**RESULTS**\nSmall model + Evolving Memory =\ncompliance-ready financial reconciliation\nat small model cost"]
+
+    D1 --> N --> D2 --> R
 ```
 
 **Actual results (from live run):**
@@ -627,24 +589,13 @@ This architecture is:
 
 Evolving Memory is the **Hippocampus** in a three-part cognitive architecture:
 
-```
-    ┌──────────────────────────────────────┐
-    │       skillos (Prefrontal Cortex)     │
-    │   Agents · Tools · Planning · LLM    │
-    │   Decides what to do, plans, reasons │
-    └──────────────┬───────────────────────┘
-                   │
-    ┌──────────────▼───────────────────────┐
-    │    Evolving Memory (Hippocampus)      │
-    │   CTE · Dream Engine · FAISS · ISA   │
-    │   Remembers, consolidates, retrieves │
-    └──────────────┬───────────────────────┘
-                   │
-    ┌──────────────▼───────────────────────┐
-    │        RoClaw (Cerebellum)            │
-    │   Robot · Bytecode · Motor Control   │
-    │   Executes physical actions          │
-    └──────────────────────────────────────┘
+```mermaid
+flowchart TD
+    S["**skillos (Prefrontal Cortex)**\nAgents · Tools · Planning · LLM\nDecides what to do, plans, reasons"]
+    E["**Evolving Memory (Hippocampus)**\nCTE · Dream Engine · FAISS · ISA\nRemembers, consolidates, retrieves"]
+    R["**RoClaw (Cerebellum)**\nRobot · Bytecode · Motor Control\nExecutes physical actions"]
+
+    S --> E --> R
 ```
 
 The same memory server (REST/WebSocket on port 8420) serves all three layers. A robot's navigation experience and a software agent's coding experience consolidate through the exact same dream pipeline — different `TraceSource` fidelity weights, same ISA, same graph structure.
@@ -766,30 +717,15 @@ Phase 0: migrated 4 legacy traces to ISA 1.0
 
 ## Architecture
 
-```
-                    +-----------------------+
-                    |   Waking State        |
-                    |   (Trace Capture)     |
-                    +-----------+-----------+
-                                |
-                         Raw Trace Log
-                                |
-                    +-----------v-----------+
-                    |    Dream Engine       |
-                    | P0 -> SWS -> REM ->   |
-                    | Consolidation ->      |
-                    |       Compaction      |
-                    +-----------+-----------+
-                                |
-                    +-----------v-----------+
-                    |  Topological Memory   |
-                    |  Graph + FAISS Index  |
-                    +-----------+-----------+
-                                |
-                    +-----------v-----------+
-                    |  Cognitive Router     |
-                    |  (Tripartite Path)    |
-                    +-----------------------+
+```mermaid
+flowchart TD
+    W["Waking State\n(Trace Capture)"]
+    T["Raw Trace Log"]
+    D["Dream Engine\nP0 → SWS → REM →\nConsolidation → Compaction"]
+    M["Topological Memory\nGraph + FAISS Index"]
+    R["Cognitive Router\n(Tripartite Path)"]
+
+    W --> T --> D --> M --> R
 ```
 
 ### The Three Subsystems
