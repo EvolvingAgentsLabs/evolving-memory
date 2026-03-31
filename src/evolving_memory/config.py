@@ -20,6 +20,10 @@ class DreamConfig(BaseModel):
     min_actions_for_trace: int = 2
     cross_link_top_k: int = 5
     cross_link_similarity_floor: float = 0.3
+    # Phase 4: Compaction
+    enable_compaction: bool = False
+    compaction_min_access: int = 3
+    compaction_max_summary_len: int = 200
 
 
 class RouterConfig(BaseModel):

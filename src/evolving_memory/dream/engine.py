@@ -1,4 +1,4 @@
-"""DreamEngine orchestrator — runs the 3-phase dream cycle (SWS → REM → Consolidation)."""
+"""DreamEngine orchestrator — runs the 4-phase dream cycle (SWS → REM → Consolidation → Compaction)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from ..storage.sqlite_store import SQLiteStore
 from ..storage.vector_index import VectorIndex
 from .adapters.default_adapter import DefaultAdapter
 from .chunker import HierarchicalChunker
+from .compactor import MemoryCompactor
 from .connector import TopologicalConnector
 from .curator import TraceCurator
 from .domain_adapter import DreamDomainAdapter
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class DreamEngine:
-    """Orchestrates the 3-phase dream cycle over unprocessed trace sessions."""
+    """Orchestrates the 4-phase dream cycle over unprocessed trace sessions."""
 
     def __init__(
         self,
@@ -43,6 +44,7 @@ class DreamEngine:
         self._curator = TraceCurator(llm, domain_adapter=self._adapter)
         self._chunker = HierarchicalChunker(llm, domain_adapter=self._adapter)
         self._connector = TopologicalConnector(store, index, encoder, config.dream, llm, domain_adapter=self._adapter)
+        self._compactor = MemoryCompactor(llm, store, config.dream, self._adapter)
         self._migration_transforms: list[MigrationTransform] = []
 
     def register_migration(self, transform: MigrationTransform) -> None:
@@ -107,6 +109,11 @@ class DreamEngine:
             f"{stats['nodes_merged']} merged, {stats['edges_created']} edges"
             f" ({journal.cross_edges_created} cross-trace)"
         )
+
+        # Phase 4: Compaction — LLM-powered summarization of verbose nodes
+        if self._config.dream.enable_compaction:
+            nodes_compacted = await self._compactor.compact(journal)
+            journal.nodes_compacted = nodes_compacted
 
         # Mark sessions as processed
         for session in sessions:

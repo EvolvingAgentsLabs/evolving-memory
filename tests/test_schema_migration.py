@@ -140,18 +140,27 @@ class TestSchemaMigration:
                 constraints_extracted INTEGER NOT NULL DEFAULT 0,
                 phase_log TEXT NOT NULL DEFAULT '[]'
             );
+            CREATE TABLE IF NOT EXISTS negative_constraints (
+                constraint_id TEXT PRIMARY KEY,
+                parent_node_id TEXT NOT NULL,
+                description TEXT NOT NULL,
+                source_trace_id TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
         """)
         count = run_migrations(conn)
-        assert count == 2  # migration 1 (schema_version) + migration 2 (columns)
+        assert count == 4  # migrations 1-4
 
         # Verify schema_version table exists
         rows = conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-        assert [r[0] for r in rows] == [1, 2]
+        assert [r[0] for r in rows] == [1, 2, 3, 4]
 
         # Verify isa_version columns exist
         conn.execute("SELECT isa_version FROM parent_nodes LIMIT 0")
         conn.execute("SELECT isa_version FROM trace_entries LIMIT 0")
         conn.execute("SELECT traces_migrated, nodes_migrated FROM dream_journal LIMIT 0")
+        # Verify compaction columns exist
+        conn.execute("SELECT cross_edges_created, nodes_compacted FROM dream_journal LIMIT 0")
         conn.close()
 
     def test_idempotent(self):
@@ -160,10 +169,11 @@ class TestSchemaMigration:
             CREATE TABLE parent_nodes (node_id TEXT PRIMARY KEY, created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '');
             CREATE TABLE trace_entries (trace_id TEXT PRIMARY KEY, created_at TEXT NOT NULL DEFAULT '');
             CREATE TABLE dream_journal (journal_id TEXT PRIMARY KEY, started_at TEXT NOT NULL DEFAULT '');
+            CREATE TABLE negative_constraints (constraint_id TEXT PRIMARY KEY, parent_node_id TEXT NOT NULL, description TEXT NOT NULL, source_trace_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
         """)
         first = run_migrations(conn)
         second = run_migrations(conn)
-        assert first == 2
+        assert first == 4
         assert second == 0  # all already applied
         conn.close()
 
