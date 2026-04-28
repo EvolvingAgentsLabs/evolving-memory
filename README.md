@@ -37,7 +37,7 @@ This structure is remarkably similar to:
 - **Chain of Thought reasoning** — a step-by-step reasoning trace where each step depends on the previous
 - **Agent execution traces** — the full log of reasoning, actions, and results during a work session
 
-In fact, this is exactly what we implemented in [RoClaw](https://github.com/EvolvingAgentsLabs/RoClaw#navigation-chain-of-thought) — a Chain of Thought for Robot Navigation:
+In fact, this is exactly what we implemented in [skillos_robot](https://github.com/EvolvingAgentsLabs/skillos_robot#navigation-chain-of-thought) — a Chain of Thought for Robot Navigation:
 
 > Each step builds on the previous one:
 > 1. **Scene Analysis** — interpret the camera frame, extract location, features, navigation hints
@@ -987,7 +987,7 @@ This architecture directly mirrors how biological memory works:
 
 The key insight from neuroscience: **the hippocampus uses the same neural machinery for spatial navigation and conceptual reasoning.** Grid cells that help you walk through a house are the same cells that help you solve a math problem step by step. Memory isn't a search engine — it's a **topological graph of causal trajectories**, and the traversal algorithm doesn't care what the trajectories represent.
 
-This is why the same architecture powers both [RoClaw](https://github.com/EvolvingAgentsLabs/RoClaw) (robot navigation through physical space) and Evolving Memory (agent navigation through conceptual space).
+This is why the same architecture powers both [skillos_robot](https://github.com/EvolvingAgentsLabs/skillos_robot) (robot navigation through physical space) and Evolving Memory (agent navigation through conceptual space).
 
 ---
 
@@ -1308,7 +1308,7 @@ class MyProvider(BaseLLMProvider):
 
 Evolving Memory is one component of a unified theory of **Agentic Control**:
 
-- **[RoClaw](https://github.com/EvolvingAgentsLabs/RoClaw)** — Robotics bytecode ISA (`AA 01 64 64 CB FF`) for hardware motor control
+- **[skillos_robot](https://github.com/EvolvingAgentsLabs/skillos_robot)** — Robotics bytecode ISA (`AA 01 64 64 CB FF`) for hardware motor control
 - **[skillos](https://github.com/EvolvingAgentsLabs/skillos)** — Pure Markdown OS for LLM agent orchestration (Prefrontal Cortex)
 - **Evolving Memory (CTE)** — Cognitive memory with ISA for software agents
 
