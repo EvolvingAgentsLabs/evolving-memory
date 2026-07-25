@@ -1,5 +1,9 @@
 # Evolving Memory
 
+<p align="center">
+  <img src="docs/img/evolving-memory.jpg" alt="Many irregular traces funnelling into a few consolidated ones" width="100%">
+</p>
+
 **Cognitive Trajectory Engine (CTE) — Topological memory graphs for LLM agents**
 
 A bio-inspired memory system that captures agent execution traces, consolidates them through dream cycles (SWS/REM/Consolidation), and enables intelligent memory retrieval via topological graph traversal. Built on an **Agentic ISA** (Instruction Set Architecture) where LLMs emit structured opcodes instead of JSON.
